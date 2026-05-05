@@ -16,6 +16,12 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("limite", message.title)
         self.assertIn("MAX_DOWNLOAD_MB", message.detail)
 
+    def test_download_read_only_cookies_message(self) -> None:
+        message = classify_download_error(RuntimeError("[Errno 30] Read-only file system: '/cookies/youtube.txt'"))
+
+        self.assertIn("cookies", message.title)
+        self.assertIn("mount", message.detail)
+
     def test_upload_too_large_message(self) -> None:
         message = classify_upload_error(RuntimeError("Request Entity Too Large"))
 

@@ -16,4 +16,4 @@ services:
     volumes:
       - ./downloads:/tmp/videogram-downloads
       - ./logs:/var/log/videogram
-      - ./cookies:/cookies:ro
+      - ./cookies:/cookies

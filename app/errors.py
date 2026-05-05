@@ -20,6 +20,12 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
             "Controlla che i cookies siano presenti e aggiornati.",
         )
 
+    if "read-only file system" in message and "cookies" in message:
+        return UserErrorMessage(
+            "Il file cookies non e scrivibile dal container.",
+            "yt-dlp ha bisogno di poter aggiornare i cookies. Controlla il mount della cartella cookies.",
+        )
+
     if "private video" in message or "video is private" in message:
         return UserErrorMessage(
             "Questo video e privato.",
