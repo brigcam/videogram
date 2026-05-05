@@ -37,6 +37,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | Variabile | Default | Descrizione |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | obbligatoria | Token del bot Telegram |
+| `ALLOWED_CHAT_IDS` | vuota | Lista di chat Telegram autorizzate, separate da virgola. Vuota = tutte le chat autorizzate |
 | `MAX_DOWNLOAD_MB` | `48` | Limite massimo del file scaricato |
 | `DOWNLOAD_DIR` | `/tmp/videogram-downloads` | Cartella temporanea nel container |
 | `MIN_FREE_DISK_PERCENT` | `5` | Spazio libero minimo da mantenere nella cache locale |
@@ -52,6 +53,22 @@ I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati q
 Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere limiti di upload diversi a seconda della modalità/API usata. Puoi aumentarlo, ma se Telegram rifiuta l'upload conviene ridurlo o passare più avanti a un uploader basato su client MTProto.
 
 Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
+
+## Whitelist chat
+
+Per limitare l'uso del bot a chat specifiche, imposta `ALLOWED_CHAT_IDS` nel `.env`:
+
+```env
+ALLOWED_CHAT_IDS=111111111,-1001234567890
+```
+
+Gli ID delle chat di gruppo o supergruppo sono spesso negativi e iniziano con `-100`. Se non conosci un ID, lascia temporaneamente la whitelist vuota, manda un messaggio al bot dalla chat interessata e leggi `chat_id=...` nei log. Poi aggiorna `.env` e riavvia:
+
+```bash
+docker compose up -d --build
+```
+
+Quando la whitelist e' attiva, Videogram ignora le chat non autorizzate. Se viene aggiunto a un gruppo fuori lista, invia un breve avviso e prova a uscire automaticamente.
 
 ## Cookies
 

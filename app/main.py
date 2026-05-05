@@ -18,9 +18,47 @@ from app.logging_config import configure_logging
 logger = logging.getLogger(__name__)
 
 
+def chat_is_allowed(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
+    allowed_chat_ids: frozenset[int] = context.application.bot_data.get("allowed_chat_ids", frozenset())
+    return not allowed_chat_ids or chat_id in allowed_chat_ids
+
+
+async def ensure_chat_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    chat = update.effective_chat
+    if not chat:
+        return False
+    if chat_is_allowed(context, chat.id):
+        return True
+
+    message = update.effective_message
+    user_id = update.effective_user.id if update.effective_user else None
+    logger.warning(
+        "unauthorized_chat_rejected chat_id=%s chat_type=%s user_id=%s message_id=%s",
+        chat.id,
+        chat.type,
+        user_id,
+        message.message_id if message else None,
+    )
+
+    if message:
+        try:
+            await message.reply_text("Questa chat non e' autorizzata a usare Videogram.")
+        except TelegramError as exc:
+            logger.warning("unauthorized_chat_reply_failed chat_id=%s error=%s", chat.id, exc)
+
+    if chat.type != "private":
+        try:
+            await context.bot.leave_chat(chat.id)
+            logger.warning("unauthorized_chat_left chat_id=%s chat_type=%s", chat.id, chat.type)
+        except TelegramError as exc:
+            logger.warning("unauthorized_chat_leave_failed chat_id=%s error=%s", chat.id, exc)
+    return False
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    del context
     if update.effective_message:
+        if not await ensure_chat_allowed(update, context):
+            return
         logger.info(
             "start_command chat_id=%s user_id=%s message_id=%s",
             update.effective_chat.id if update.effective_chat else None,
@@ -35,6 +73,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if not message:
+        return
+    if not await ensure_chat_allowed(update, context):
         return
 
     text = message.text or message.caption or ""
@@ -111,6 +151,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 logger.info("request_id=%s removed_after_send path=%s", request_id, downloaded.path)
 
 
+async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message or not message.new_chat_members or not update.effective_chat:
+        return
+
+    bot = await context.bot.get_me()
+    if not any(member.id == bot.id for member in message.new_chat_members):
+        return
+    if chat_is_allowed(context, update.effective_chat.id):
+        logger.info(
+            "bot_added_to_allowed_chat chat_id=%s chat_type=%s message_id=%s",
+            update.effective_chat.id,
+            update.effective_chat.type,
+            message.message_id,
+        )
+        return
+
+    logger.warning(
+        "bot_added_to_unauthorized_chat chat_id=%s chat_type=%s message_id=%s",
+        update.effective_chat.id,
+        update.effective_chat.type,
+        message.message_id,
+    )
+    await ensure_chat_allowed(update, context)
+
+
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.error:
         exc_info = (type(context.error), context.error, context.error.__traceback__)
@@ -132,13 +198,16 @@ def main() -> None:
     )
     application = Application.builder().token(settings.telegram_bot_token).build()
     application.bot_data["downloader"] = downloader
+    application.bot_data["allowed_chat_ids"] = settings.allowed_chat_ids
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(handle_error)
 
     logger.info(
         "Videogram started download_dir=%s max_download_mb=%s min_free_disk_percent=%s "
-        "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s",
+        "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s whitelist_enabled=%s "
+        "allowed_chat_count=%s",
         settings.download_dir,
         settings.max_download_mb,
         settings.min_free_disk_percent,
@@ -146,6 +215,8 @@ def main() -> None:
         settings.log_max_mb,
         settings.log_backup_count,
         bool(settings.ytdlp_cookies_file or settings.ytdlp_cookies_dir),
+        bool(settings.allowed_chat_ids),
+        len(settings.allowed_chat_ids),
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
