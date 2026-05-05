@@ -28,6 +28,12 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("dimensione", message.title)
         self.assertIn("upload", message.detail)
 
+    def test_download_reddit_auth_message(self) -> None:
+        message = classify_download_error(RuntimeError("[Reddit] Account authentication is required"))
+
+        self.assertIn("Reddit", message.title)
+        self.assertIn("reddit.txt", message.detail)
+
     def test_message_includes_request_id(self) -> None:
         formatted = classify_download_error(RuntimeError("unknown")).format("abc123")
 

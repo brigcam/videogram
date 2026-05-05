@@ -20,6 +20,12 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
             "Controlla che i cookies siano presenti e aggiornati.",
         )
 
+    if "account authentication is required" in message and "reddit" in message:
+        return UserErrorMessage(
+            "Reddit richiede una sessione autenticata.",
+            "Esporta i cookies Reddit in ./cookies/reddit.txt e riprova.",
+        )
+
     if "read-only file system" in message and "cookies" in message:
         return UserErrorMessage(
             "Il file cookies non e scrivibile dal container.",

@@ -13,6 +13,7 @@ class Settings:
     log_max_mb: int = 10
     log_backup_count: int = 5
     ytdlp_cookies_file: str = ""
+    ytdlp_cookies_dir: str = ""
 
     @property
     def max_download_bytes(self) -> int:
@@ -38,4 +39,5 @@ def load_settings() -> Settings:
         log_max_mb=int(os.getenv("LOG_MAX_MB", "10")),
         log_backup_count=int(os.getenv("LOG_BACKUP_COUNT", "5")),
         ytdlp_cookies_file=os.getenv("YTDLP_COOKIES_FILE", "").strip(),
+        ytdlp_cookies_dir=os.getenv("YTDLP_COOKIES_DIR", "").strip(),
     )

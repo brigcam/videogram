@@ -8,6 +8,9 @@ Per ora supporta YouTube:
 - `youtu.be/...`
 - `youtube.com/shorts/...`
 - `youtube.com/embed/...`
+- `reddit.com/r/.../comments/...`
+- `old.reddit.com/r/.../comments/...`
+- `redd.it/...`
 
 ## Avvio rapido
 
@@ -42,6 +45,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
 | `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
 | `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per video YouTube che richiedono login/verifica |
+| `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt` e `reddit.txt` |
 
 I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
@@ -49,12 +53,17 @@ Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere
 
 Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
 
-## YouTube cookies
+## Cookies
 
-Alcuni video YouTube possono fallire con un messaggio tipo `Sign in to confirm you're not a bot`. In quel caso esporta i cookies YouTube in formato Netscape, salva il file localmente come `./cookies/youtube.txt`, poi aggiungi al tuo `.env`:
+Alcuni video YouTube possono fallire con un messaggio tipo `Sign in to confirm you're not a bot`. Alcuni post Reddit possono richiedere una sessione autenticata. In questi casi esporta i cookies in formato Netscape e salvali localmente, per esempio:
+
+- `./cookies/youtube.txt`
+- `./cookies/reddit.txt`
+
+Poi aggiungi al tuo `.env`:
 
 ```env
-YTDLP_COOKIES_FILE=/cookies/youtube.txt
+YTDLP_COOKIES_DIR=/cookies
 ```
 
 La cartella `./cookies` è montata in sola lettura, ignorata da Git e copiata in una posizione temporanea a ogni download, così `yt-dlp` non modifica il file originale. Dopo aver modificato `.env`:

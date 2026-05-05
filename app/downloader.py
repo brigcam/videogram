@@ -34,11 +34,13 @@ class VideoDownloader:
         max_bytes: int,
         min_free_disk_percent: float,
         cookies_file: str = "",
+        cookies_dir: str = "",
     ) -> None:
         self.download_dir = Path(download_dir)
         self.max_bytes = max_bytes
         self.min_free_disk_percent = min_free_disk_percent
         self.cookies_file = Path(cookies_file) if cookies_file else None
+        self.cookies_dir = Path(cookies_dir) if cookies_dir else None
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     async def download(self, url: str, request_id: str) -> DownloadedVideo:
@@ -90,19 +92,9 @@ class VideoDownloader:
             "quiet": True,
             "no_warnings": True,
         }
-        if self.cookies_file:
-            if self.cookies_file.exists():
-                runtime_cookies = temp_dir / "cookies.txt"
-                shutil.copy2(self.cookies_file, runtime_cookies)
-                options["cookiefile"] = str(runtime_cookies)
-                logger.info(
-                    "request_id=%s ytdlp_cookies_enabled source_path=%s runtime_path=%s",
-                    request_id,
-                    self.cookies_file,
-                    runtime_cookies,
-                )
-            else:
-                logger.warning("request_id=%s ytdlp_cookies_missing path=%s", request_id, self.cookies_file)
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        if runtime_cookies:
+            options["cookiefile"] = str(runtime_cookies)
 
         try:
             logger.info("request_id=%s download_start url=%s", request_id, url)
@@ -161,6 +153,53 @@ class VideoDownloader:
             source_url=url,
             delete_after_send=delete_after_send,
         )
+
+    def _prepare_cookiefile(self, temp_dir: Path, request_id: str) -> Path | None:
+        cookie_sources: list[Path] = []
+        if self.cookies_file:
+            cookie_sources.append(self.cookies_file)
+        if self.cookies_dir:
+            if self.cookies_dir.exists():
+                cookie_sources.extend(sorted(self.cookies_dir.glob("*.txt")))
+            else:
+                logger.warning("request_id=%s ytdlp_cookies_dir_missing path=%s", request_id, self.cookies_dir)
+
+        existing_sources: list[Path] = []
+        seen: set[Path] = set()
+        for source in cookie_sources:
+            resolved = source.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if source.exists() and source.is_file():
+                existing_sources.append(source)
+            else:
+                logger.warning("request_id=%s ytdlp_cookies_missing path=%s", request_id, source)
+
+        if not existing_sources:
+            return None
+
+        runtime_cookies = temp_dir / "cookies.txt"
+        with runtime_cookies.open("w", encoding="utf-8") as output:
+            output.write("# Netscape HTTP Cookie File\n")
+            for source in existing_sources:
+                last_line = "\n"
+                with source.open("r", encoding="utf-8", errors="replace") as input_file:
+                    for line in input_file:
+                        last_line = line
+                        if line.startswith("# Netscape HTTP Cookie File"):
+                            continue
+                        output.write(line)
+                if not last_line.endswith("\n"):
+                    output.write("\n")
+
+        logger.info(
+            "request_id=%s ytdlp_cookies_enabled source_count=%s runtime_path=%s",
+            request_id,
+            len(existing_sources),
+            runtime_cookies,
+        )
+        return runtime_cookies
 
     def _load_cached_video(self, cache_dir: Path, url: str) -> DownloadedVideo | None:
         metadata_path = cache_dir / "metadata.json"

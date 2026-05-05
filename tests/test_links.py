@@ -1,6 +1,6 @@
 import unittest
 
-from app.links import extract_supported_links, normalize_youtube_url
+from app.links import extract_supported_links, normalize_reddit_url, normalize_youtube_url
 
 
 class YoutubeLinkTests(unittest.TestCase):
@@ -32,6 +32,34 @@ class YoutubeLinkTests(unittest.TestCase):
 
     def test_ignores_unsupported_urls(self) -> None:
         self.assertEqual(extract_supported_links("https://example.com/video"), [])
+
+    def test_normalizes_reddit_urls(self) -> None:
+        self.assertEqual(
+            normalize_reddit_url(
+                "https://old.reddit.com/r/oddlyterrifying/comments/1t4tsgz/he_was_being_watched_the_entire_time/"
+            ),
+            "https://www.reddit.com/r/oddlyterrifying/comments/1t4tsgz/he_was_being_watched_the_entire_time/",
+        )
+
+    def test_normalizes_reddit_short_urls(self) -> None:
+        self.assertEqual(
+            normalize_reddit_url("https://redd.it/1t4tsgz"),
+            "https://www.reddit.com/comments/1t4tsgz/",
+        )
+
+    def test_extracts_youtube_and_reddit_links(self) -> None:
+        text = (
+            "https://youtu.be/dQw4w9WgXcQ "
+            "https://old.reddit.com/r/oddlyterrifying/comments/1t4tsgz/he_was_being_watched_the_entire_time/"
+        )
+
+        self.assertEqual(
+            extract_supported_links(text),
+            [
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "https://www.reddit.com/r/oddlyterrifying/comments/1t4tsgz/he_was_being_watched_the_entire_time/",
+            ],
+        )
 
 
 if __name__ == "__main__":

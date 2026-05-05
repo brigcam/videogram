@@ -128,6 +128,7 @@ def main() -> None:
         settings.max_download_bytes,
         settings.min_free_disk_percent,
         settings.ytdlp_cookies_file,
+        settings.ytdlp_cookies_dir,
     )
     application = Application.builder().token(settings.telegram_bot_token).build()
     application.bot_data["downloader"] = downloader
@@ -144,7 +145,7 @@ def main() -> None:
         settings.log_file,
         settings.log_max_mb,
         settings.log_backup_count,
-        bool(settings.ytdlp_cookies_file),
+        bool(settings.ytdlp_cookies_file or settings.ytdlp_cookies_dir),
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
