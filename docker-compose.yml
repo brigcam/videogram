@@ -12,6 +12,8 @@ services:
       LOG_FILE: ${LOG_FILE:-/var/log/videogram/videogram.log}
       LOG_MAX_MB: ${LOG_MAX_MB:-10}
       LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-5}
+      YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
     volumes:
       - ./downloads:/tmp/videogram-downloads
       - ./logs:/var/log/videogram
+      - ./cookies:/cookies:ro

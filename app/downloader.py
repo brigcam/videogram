@@ -28,10 +28,17 @@ class DownloadedVideo:
 
 
 class VideoDownloader:
-    def __init__(self, download_dir: str, max_bytes: int, min_free_disk_percent: float) -> None:
+    def __init__(
+        self,
+        download_dir: str,
+        max_bytes: int,
+        min_free_disk_percent: float,
+        cookies_file: str = "",
+    ) -> None:
         self.download_dir = Path(download_dir)
         self.max_bytes = max_bytes
         self.min_free_disk_percent = min_free_disk_percent
+        self.cookies_file = Path(cookies_file) if cookies_file else None
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     async def download(self, url: str, request_id: str) -> DownloadedVideo:
@@ -76,6 +83,12 @@ class VideoDownloader:
             "quiet": True,
             "no_warnings": True,
         }
+        if self.cookies_file:
+            if self.cookies_file.exists():
+                options["cookiefile"] = str(self.cookies_file)
+                logger.info("request_id=%s ytdlp_cookies_enabled path=%s", request_id, self.cookies_file)
+            else:
+                logger.warning("request_id=%s ytdlp_cookies_missing path=%s", request_id, self.cookies_file)
 
         try:
             logger.info("request_id=%s download_start url=%s", request_id, url)

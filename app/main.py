@@ -119,6 +119,7 @@ def main() -> None:
         settings.download_dir,
         settings.max_download_bytes,
         settings.min_free_disk_percent,
+        settings.ytdlp_cookies_file,
     )
     application = Application.builder().token(settings.telegram_bot_token).build()
     application.bot_data["downloader"] = downloader
@@ -128,13 +129,14 @@ def main() -> None:
 
     logger.info(
         "Videogram started download_dir=%s max_download_mb=%s min_free_disk_percent=%s "
-        "log_file=%s log_max_mb=%s log_backup_count=%s",
+        "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s",
         settings.download_dir,
         settings.max_download_mb,
         settings.min_free_disk_percent,
         settings.log_file,
         settings.log_max_mb,
         settings.log_backup_count,
+        bool(settings.ytdlp_cookies_file),
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

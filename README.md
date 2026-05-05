@@ -41,10 +41,25 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `LOG_FILE` | `/var/log/videogram/videogram.log` | File log persistente nel container |
 | `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
 | `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
+| `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per video YouTube che richiedono login/verifica |
 
 I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
 Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere limiti di upload diversi a seconda della modalità/API usata. Puoi aumentarlo, ma se Telegram rifiuta l'upload conviene ridurlo o passare più avanti a un uploader basato su client MTProto.
+
+## YouTube cookies
+
+Alcuni video YouTube possono fallire con un messaggio tipo `Sign in to confirm you're not a bot`. In quel caso esporta i cookies YouTube in formato Netscape, salva il file localmente come `./cookies/youtube.txt`, poi aggiungi al tuo `.env`:
+
+```env
+YTDLP_COOKIES_FILE=/cookies/youtube.txt
+```
+
+La cartella `./cookies` è montata in sola lettura nel container ed è ignorata da Git. Dopo aver modificato `.env`:
+
+```bash
+docker compose up -d --build
+```
 
 ## Log
 
