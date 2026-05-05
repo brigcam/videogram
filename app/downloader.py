@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import shutil
 import time
 import uuid
@@ -8,6 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
+
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadError(RuntimeError):
@@ -30,22 +34,32 @@ class VideoDownloader:
         self.min_free_disk_percent = min_free_disk_percent
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
-    async def download(self, url: str) -> DownloadedVideo:
-        return await asyncio.to_thread(self._download_sync, url)
+    async def download(self, url: str, request_id: str) -> DownloadedVideo:
+        return await asyncio.to_thread(self._download_sync, url, request_id)
 
     def remove(self, path: Path) -> None:
         parent = path.parent
         if parent.exists() and parent.parent == self.download_dir:
+            logger.info("request cleanup removing_cache_dir path=%s", parent)
             shutil.rmtree(parent, ignore_errors=True)
 
-    def _download_sync(self, url: str) -> DownloadedVideo:
+    def _download_sync(self, url: str, request_id: str) -> DownloadedVideo:
+        started_at = time.perf_counter()
         cache_key = hashlib.sha256(url.encode("utf-8")).hexdigest()
         cache_dir = self.download_dir / cache_key
         cached = self._load_cached_video(cache_dir, url)
         if cached:
             self._touch_cache(cache_dir)
+            logger.info(
+                "request_id=%s cache_hit key=%s path=%s size_bytes=%s",
+                request_id,
+                cache_key[:12],
+                cached.path,
+                cached.path.stat().st_size,
+            )
             return cached
 
+        logger.info("request_id=%s cache_miss key=%s url=%s", request_id, cache_key[:12], url)
         self._prune_cache()
 
         temp_dir = self.download_dir / f"{uuid.uuid4().hex}.part"
@@ -64,11 +78,13 @@ class VideoDownloader:
         }
 
         try:
+            logger.info("request_id=%s download_start url=%s", request_id, url)
             with YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
         except Exception as exc:
             shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.warning("request_id=%s download_failed url=%s error=%s", request_id, url, exc)
             raise DownloadError(str(exc)) from exc
 
         path = Path(filename)
@@ -76,11 +92,20 @@ class VideoDownloader:
             mp4_files = sorted(temp_dir.glob("*.mp4"), key=lambda item: item.stat().st_mtime)
             if not mp4_files:
                 shutil.rmtree(temp_dir, ignore_errors=True)
+                logger.warning("request_id=%s download_missing_output url=%s", request_id, url)
                 raise DownloadError("Download completed, but no video file was produced.")
             path = mp4_files[-1]
 
         if path.stat().st_size > self.max_bytes:
+            size_bytes = path.stat().st_size
             shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.warning(
+                "request_id=%s download_too_large size_bytes=%s max_bytes=%s url=%s",
+                request_id,
+                size_bytes,
+                self.max_bytes,
+                url,
+            )
             raise DownloadError("The downloaded video is larger than the configured limit.")
 
         if cache_dir.exists():
@@ -91,6 +116,17 @@ class VideoDownloader:
         self._write_metadata(cache_dir, url, title, cached_path.name)
         self._prune_cache(exclude=cache_dir)
         delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
+        logger.info(
+            "request_id=%s download_complete key=%s path=%s size_bytes=%s elapsed_ms=%s "
+            "free_disk_percent=%.2f delete_after_send=%s",
+            request_id,
+            cache_key[:12],
+            cached_path,
+            cached_path.stat().st_size,
+            int((time.perf_counter() - started_at) * 1000),
+            self._free_disk_percent(),
+            delete_after_send,
+        )
 
         return DownloadedVideo(
             path=cached_path,
@@ -151,6 +187,12 @@ class VideoDownloader:
             if not victim:
                 return
             shutil.rmtree(victim, ignore_errors=True)
+            logger.info(
+                "cache_pruned path=%s free_disk_percent=%.2f min_free_disk_percent=%.2f",
+                victim,
+                self._free_disk_percent(),
+                self.min_free_disk_percent,
+            )
 
     def _free_disk_percent(self) -> float:
         usage = shutil.disk_usage(self.download_dir)

@@ -9,8 +9,13 @@ services:
       DOWNLOAD_DIR: ${DOWNLOAD_DIR:-/tmp/videogram-downloads}
       MIN_FREE_DISK_PERCENT: ${MIN_FREE_DISK_PERCENT:-5}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FILE: ${LOG_FILE:-/var/log/videogram/videogram.log}
+      LOG_MAX_MB: ${LOG_MAX_MB:-10}
+      LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-5}
     volumes:
       - videogram-downloads:/tmp/videogram-downloads
+      - videogram-logs:/var/log/videogram
 
 volumes:
   videogram-downloads:
+  videogram-logs:

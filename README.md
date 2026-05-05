@@ -38,6 +38,9 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `DOWNLOAD_DIR` | `/tmp/videogram-downloads` | Cartella temporanea nel container |
 | `MIN_FREE_DISK_PERCENT` | `5` | Spazio libero minimo da mantenere nella cache locale |
 | `LOG_LEVEL` | `INFO` | Livello log Python |
+| `LOG_FILE` | `/var/log/videogram/videogram.log` | File log persistente nel container |
+| `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
+| `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
 
 I video scaricati vengono tenuti nella volume Docker `videogram-downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
@@ -48,6 +51,14 @@ Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere
 ```bash
 docker compose logs -f
 ```
+
+I log vengono scritti anche nel volume Docker `videogram-logs` con rotazione automatica. Per leggerli dal container:
+
+```bash
+docker compose exec videogram tail -f /var/log/videogram/videogram.log
+```
+
+Ogni link processato ha un `request_id`, utile per seguire download, cache, upload ed eventuali errori nello stesso flusso.
 
 ## Roadmap naturale
 
