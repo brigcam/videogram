@@ -5,10 +5,12 @@ import uuid
 
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
+from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.config import load_settings
 from app.downloader import DownloadError, VideoDownloader
+from app.errors import classify_download_error, classify_upload_error
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
 
@@ -93,10 +95,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await status.delete()
         except DownloadError as exc:
             logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
-            await status.edit_text("Non sono riuscito a scaricare questo video. Riprova con un altro link.")
-        except Exception:
+            user_error = classify_download_error(exc)
+            await status.edit_text(user_error.format(request_id))
+        except TelegramError as exc:
+            logger.warning("request_id=%s process_upload_failed url=%s error=%s", request_id, link, exc)
+            user_error = classify_upload_error(exc)
+            await status.edit_text(user_error.format(request_id))
+        except Exception as exc:
             logger.exception("request_id=%s process_unexpected_failed url=%s", request_id, link)
-            await status.edit_text("Qualcosa è andato storto mentre preparavo il video.")
+            user_error = classify_upload_error(exc)
+            await status.edit_text(user_error.format(request_id))
         finally:
             if downloaded and downloaded.delete_after_send:
                 downloader.remove(downloaded.path)
