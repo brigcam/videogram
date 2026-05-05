@@ -47,6 +47,8 @@ I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati q
 
 Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere limiti di upload diversi a seconda della modalità/API usata. Puoi aumentarlo, ma se Telegram rifiuta l'upload conviene ridurlo o passare più avanti a un uploader basato su client MTProto.
 
+Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
+
 ## YouTube cookies
 
 Alcuni video YouTube possono fallire con un messaggio tipo `Sign in to confirm you're not a bot`. In quel caso esporta i cookies YouTube in formato Netscape, salva il file localmente come `./cookies/youtube.txt`, poi aggiungi al tuo `.env`:

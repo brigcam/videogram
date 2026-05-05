@@ -73,12 +73,19 @@ class VideoDownloader:
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         options = {
-            "format": "bv*[ext=mp4][filesize<={0}]+ba[ext=m4a]/b[ext=mp4][filesize<={0}]/best[filesize<={0}]".format(
-                self.max_bytes
-            ),
+            "format": (
+                "bv*[ext=mp4][filesize<={0}]+ba[ext=m4a]/"
+                "bv*[ext=mp4][filesize_approx<={0}]+ba[ext=m4a]/"
+                "b[ext=mp4][filesize<={0}]/"
+                "b[ext=mp4][filesize_approx<={0}]/"
+                "bv*[ext=mp4]+ba[ext=m4a]/"
+                "b[ext=mp4]/"
+                "best"
+            ).format(self.max_bytes),
             "outtmpl": str(temp_dir / "%(title).180B [%(id)s].%(ext)s"),
             "merge_output_format": "mp4",
             "max_filesize": self.max_bytes,
+            "js_runtimes": {"node": {}},
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,

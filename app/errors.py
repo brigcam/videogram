@@ -53,7 +53,7 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
     if "requested format is not available" in message or "no video formats found" in message:
         return UserErrorMessage(
             "Non ho trovato un formato video scaricabile.",
-            "Il sito non sta offrendo un MP4 compatibile o yt-dlp non riesce a estrarre questo contenuto.",
+            "YouTube potrebbe aver richiesto una challenge JavaScript/EJS oppure non sta offrendo un formato compatibile.",
         )
 
     if "unsupported url" in message:
