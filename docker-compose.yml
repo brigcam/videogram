@@ -1,0 +1,16 @@
+services:
+  videogram:
+    build: .
+    container_name: videogram
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Create .env from .env.example and set TELEGRAM_BOT_TOKEN}
+      MAX_DOWNLOAD_MB: ${MAX_DOWNLOAD_MB:-48}
+      DOWNLOAD_DIR: ${DOWNLOAD_DIR:-/tmp/videogram-downloads}
+      MIN_FREE_DISK_PERCENT: ${MIN_FREE_DISK_PERCENT:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - videogram-downloads:/tmp/videogram-downloads
+
+volumes:
+  videogram-downloads:
