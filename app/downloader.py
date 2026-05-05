@@ -92,8 +92,15 @@ class VideoDownloader:
         }
         if self.cookies_file:
             if self.cookies_file.exists():
-                options["cookiefile"] = str(self.cookies_file)
-                logger.info("request_id=%s ytdlp_cookies_enabled path=%s", request_id, self.cookies_file)
+                runtime_cookies = temp_dir / "cookies.txt"
+                shutil.copy2(self.cookies_file, runtime_cookies)
+                options["cookiefile"] = str(runtime_cookies)
+                logger.info(
+                    "request_id=%s ytdlp_cookies_enabled source_path=%s runtime_path=%s",
+                    request_id,
+                    self.cookies_file,
+                    runtime_cookies,
+                )
             else:
                 logger.warning("request_id=%s ytdlp_cookies_missing path=%s", request_id, self.cookies_file)
 

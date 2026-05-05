@@ -57,7 +57,7 @@ Alcuni video YouTube possono fallire con un messaggio tipo `Sign in to confirm y
 YTDLP_COOKIES_FILE=/cookies/youtube.txt
 ```
 
-La cartella `./cookies` è ignorata da Git. Dopo aver modificato `.env`:
+La cartella `./cookies` è montata in sola lettura, ignorata da Git e copiata in una posizione temporanea a ogni download, così `yt-dlp` non modifica il file originale. Dopo aver modificato `.env`:
 
 ```bash
 docker compose up -d --build
