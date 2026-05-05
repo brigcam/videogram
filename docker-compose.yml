@@ -13,9 +13,5 @@ services:
       LOG_MAX_MB: ${LOG_MAX_MB:-10}
       LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-5}
     volumes:
-      - videogram-downloads:/tmp/videogram-downloads
-      - videogram-logs:/var/log/videogram
-
-volumes:
-  videogram-downloads:
-  videogram-logs:
+      - ./downloads:/tmp/videogram-downloads
+      - ./logs:/var/log/videogram

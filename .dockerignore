@@ -3,4 +3,5 @@
 __pycache__/
 *.pyc
 downloads/
+logs/
 .pytest_cache/
