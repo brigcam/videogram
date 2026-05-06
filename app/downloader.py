@@ -1,7 +1,9 @@
 import asyncio
+import html
 import hashlib
 import json
 import logging
+import re
 import shutil
 import time
 import urllib.error
@@ -21,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 SIDECAR_CACHE_FILENAMES = frozenset(("transcript.json", "summary.json", "summary.parameters.json"))
+TIKTOK_PAGE_USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
 
 
 class DownloadError(RuntimeError):
@@ -493,6 +499,9 @@ class VideoDownloader:
         except Exception as exc:
             shutil.rmtree(temp_dir, ignore_errors=True)
             logger.warning("request_id=%s post_extract_failed url=%s error=%s", request_id, url, exc)
+            if self._looks_like_tiktok_photo_error(url, exc):
+                logger.info("request_id=%s tiktok_photo_fallback_start url=%s", request_id, url)
+                return self._download_tiktok_photo_post_sync(url, request_id)
             raise DownloadError(str(exc)) from exc
 
         title = info.get("title") or "Post"
@@ -546,6 +555,186 @@ class VideoDownloader:
             text=text,
             delete_after_send=delete_after_send,
         )
+
+    def _download_tiktok_photo_post_sync(self, url: str, request_id: str) -> DownloadedPost:
+        cache_dir = self.cache_dir_for_url(url)
+        cache_key = cache_dir.name
+        self._prune_cache()
+        temp_dir = self.download_dir / f"{uuid.uuid4().hex}.tiktok-photo.part"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            page_html, final_url = self._download_tiktok_page(url)
+            metadata = self._extract_tiktok_photo_metadata(page_html)
+            image_urls = metadata["image_urls"]
+            title = metadata["title"] or "TikTok photo post"
+            description = metadata["description"]
+            if not image_urls:
+                raise DownloadError("No downloadable photos were found for this TikTok post.")
+
+            photo_paths: list[Path] = []
+            total_bytes = 0
+            for index, image_url in enumerate(image_urls[:10], start=1):
+                try:
+                    photo_path = self._download_image(image_url, temp_dir, index)
+                except Exception as exc:
+                    logger.warning(
+                        "request_id=%s tiktok_photo_download_failed index=%s url=%s error=%s",
+                        request_id,
+                        index,
+                        image_url,
+                        exc,
+                    )
+                    continue
+                total_bytes += photo_path.stat().st_size
+                if total_bytes > self.max_download_bytes:
+                    raise DownloadError("The downloaded post media is larger than the configured limit.")
+                photo_paths.append(photo_path)
+
+            text = description or title
+            if not photo_paths and not text.strip():
+                raise DownloadError("No downloadable media or text was found for this TikTok post.")
+
+            installed_photo_paths = self._install_cache_files(temp_dir, cache_dir, tuple(photo_paths))
+            photos = tuple(DownloadedPhoto(path) for path in installed_photo_paths)
+            self._write_post_metadata(cache_dir, url, title, description, text, photos)
+            delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
+            logger.info(
+                "request_id=%s tiktok_photo_fallback_complete key=%s final_url=%s photo_count=%s text_chars=%s "
+                "free_disk_percent=%.2f delete_after_send=%s",
+                request_id,
+                cache_key[:12],
+                final_url,
+                len(photos),
+                len(text),
+                self._free_disk_percent(),
+                delete_after_send,
+            )
+            return DownloadedPost(
+                title=title,
+                source_url=url,
+                cache_dir=cache_dir,
+                description=description,
+                photos=photos,
+                text=text,
+                delete_after_send=delete_after_send,
+            )
+        except Exception as exc:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            if isinstance(exc, DownloadError):
+                raise
+            logger.warning("request_id=%s tiktok_photo_fallback_failed url=%s error=%s", request_id, url, exc)
+            raise DownloadError(str(exc)) from exc
+
+    def _looks_like_tiktok_photo_error(self, url: str, error: Exception) -> bool:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        message = str(error).lower()
+        return (
+            ("tiktok.com" in host or "vm.tiktok.com" in host)
+            and ("unsupported url" in message or "/photo/" in message)
+        )
+
+    def _download_tiktok_page(self, url: str) -> tuple[str, str]:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "User-Agent": TIKTOK_PAGE_USER_AGENT,
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read().decode(charset, errors="replace"), response.geturl()
+
+    def _extract_tiktok_photo_metadata(self, page_html: str) -> dict[str, object]:
+        item = self._extract_tiktok_item_struct(page_html) or {}
+        description = item.get("desc") if isinstance(item.get("desc"), str) else ""
+        title = description or self._extract_tiktok_share_title(item) or "TikTok photo post"
+        image_urls = self._collect_tiktok_photo_urls(item)
+        if not image_urls:
+            image_urls = self._collect_tiktok_photo_urls_from_html(page_html)
+        return {
+            "title": title,
+            "description": description,
+            "image_urls": image_urls,
+        }
+
+    def _extract_tiktok_item_struct(self, page_html: str) -> dict | None:
+        match = re.search(
+            r'<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>',
+            page_html,
+            re.S,
+        )
+        if not match:
+            return None
+        try:
+            data = json.loads(html.unescape(match.group(1)))
+        except json.JSONDecodeError:
+            return None
+        return self._find_tiktok_item_struct(data)
+
+    def _find_tiktok_item_struct(self, item) -> dict | None:
+        if isinstance(item, dict):
+            item_struct = item.get("itemStruct")
+            if isinstance(item_struct, dict) and isinstance(item_struct.get("imagePost"), dict):
+                return item_struct
+            for value in item.values():
+                found = self._find_tiktok_item_struct(value)
+                if found:
+                    return found
+        if isinstance(item, list):
+            for value in item:
+                found = self._find_tiktok_item_struct(value)
+                if found:
+                    return found
+        return None
+
+    def _extract_tiktok_share_title(self, item: dict) -> str:
+        author = item.get("author") if isinstance(item.get("author"), dict) else {}
+        nickname = author.get("nickname") if isinstance(author.get("nickname"), str) else ""
+        unique_id = author.get("uniqueId") if isinstance(author.get("uniqueId"), str) else ""
+        if nickname:
+            return f"TikTok · {nickname}"
+        if unique_id:
+            return f"TikTok · @{unique_id}"
+        return ""
+
+    def _collect_tiktok_photo_urls(self, item: dict) -> list[str]:
+        image_post = item.get("imagePost") if isinstance(item.get("imagePost"), dict) else {}
+        images = image_post.get("images") if isinstance(image_post.get("images"), list) else []
+        urls: list[str] = []
+        for image in images:
+            image_url = image.get("imageURL") if isinstance(image, dict) else None
+            if not isinstance(image_url, dict):
+                continue
+            for candidate in image_url.get("urlList") or []:
+                previous_count = len(urls)
+                self._add_tiktok_photo_url(urls, candidate)
+                if len(urls) > previous_count:
+                    break
+        return urls
+
+    def _collect_tiktok_photo_urls_from_html(self, page_html: str) -> list[str]:
+        decoded = html.unescape(page_html).replace("\\u002F", "/")
+        urls: list[str] = []
+        for match in re.finditer(r"https://[^\"'\\<>\s]+(?:photomode|i-photomode)[^\"'\\<>\s]+", decoded):
+            self._add_tiktok_photo_url(urls, match.group(0))
+        return urls
+
+    def _add_tiktok_photo_url(self, urls: list[str], candidate) -> None:
+        if not isinstance(candidate, str) or not candidate:
+            return
+        candidate = html.unescape(candidate).replace("\\u002F", "/")
+        parsed = urlparse(candidate)
+        path = parsed.path.lower()
+        if not any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
+            return
+        if "photomode" not in path or "share-card" in path:
+            return
+        if candidate not in urls:
+            urls.append(candidate)
 
     def _collect_image_urls(self, info: dict) -> list[str]:
         urls: list[str] = []

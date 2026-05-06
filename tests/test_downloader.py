@@ -138,6 +138,80 @@ class DownloaderTests(unittest.TestCase):
             ["https://example.com/one.jpg", "https://example.com/three.webp"],
         )
 
+    def test_extracts_tiktok_photo_metadata_from_rehydration_json(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+        data = {
+            "__DEFAULT_SCOPE__": {
+                "webapp.reflow.video.detail": {
+                    "itemInfo": {
+                        "itemStruct": {
+                            "desc": "1980s Japan.. #tokyo",
+                            "author": {"nickname": "Cosmo Bloom", "uniqueId": "cosmo_bloom"},
+                            "imagePost": {
+                                "images": [
+                                    {
+                                        "imageURL": {
+                                            "urlList": [
+                                                "https:\\u002F\\u002Fp16.example.com\\u002Fone~tplv-photomode-image.jpeg?x=1"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "imageURL": {
+                                            "urlList": [
+                                                "https://p16.example.com/two~tplv-photomode-image.webp?x=2"
+                                            ]
+                                        }
+                                    },
+                                ]
+                            },
+                        }
+                    }
+                }
+            }
+        }
+        page_html = (
+            '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
+            f"{json.dumps(data)}"
+            "</script>"
+        )
+
+        metadata = downloader._extract_tiktok_photo_metadata(page_html)
+
+        self.assertEqual(metadata["title"], "1980s Japan.. #tokyo")
+        self.assertEqual(metadata["description"], "1980s Japan.. #tokyo")
+        self.assertEqual(
+            metadata["image_urls"],
+            [
+                "https://p16.example.com/one~tplv-photomode-image.jpeg?x=1",
+                "https://p16.example.com/two~tplv-photomode-image.webp?x=2",
+            ],
+        )
+
+    def test_collects_tiktok_photo_urls_from_html_fallback(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+        page_html = (
+            'href="https://p16.example.com/one~tplv-photomode-image.jpeg?x=1" '
+            'href="https://p16.example.com/one~tplv-photomode-image.jpeg?x=1" '
+            'href="https://p16.example.com/card~tplv-photomode-video-share-card:630:630:20.jpeg?x=2" '
+            'href="https://p16.example.com/avatar.jpeg?x=3"'
+        )
+
+        self.assertEqual(
+            downloader._collect_tiktok_photo_urls_from_html(page_html),
+            ["https://p16.example.com/one~tplv-photomode-image.jpeg?x=1"],
+        )
+
     def test_loads_cached_photo_post(self) -> None:
         url = "https://example.com/post"
         with tempfile.TemporaryDirectory() as temp_dir:

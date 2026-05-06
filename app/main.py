@@ -474,6 +474,9 @@ async def publish_summary_task(
         return
 
     if result.transcript_error:
+        sent_description_summary = await maybe_send_description_summary(message, context, post, link, request_id)
+        if sent_description_summary:
+            return
         user_error = classify_transcript_error(result.transcript_error)
         try:
             await message.reply_text(user_error.format(request_id))
