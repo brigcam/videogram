@@ -16,6 +16,7 @@ from app.errors import classify_download_error, classify_upload_error
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
 from app.summarizer import OpenAISummarizer, SummaryError
+from app.telegram_formatting import summary_markdown_to_telegram_html
 
 
 logger = logging.getLogger(__name__)
@@ -212,22 +213,17 @@ async def maybe_send_summary(
     if not summary:
         return
 
-    try:
-        await message.reply_text(
-            summary.text[:4096],
-            parse_mode=ParseMode.MARKDOWN,
-            disable_web_page_preview=True,
-        )
-    except TelegramError as exc:
-        logger.warning("request_id=%s summary_markdown_parse_failed error=%s", request_id, exc)
-        await message.reply_text(summary.text[:4096], disable_web_page_preview=True)
+    await message.reply_text(
+        summary_markdown_to_telegram_html(summary.text)[:4096],
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
     await send_transcript_file(message, downloaded.title, transcript.text, request_id)
 
 
 async def send_transcript_file(message, title: str, transcript_text: str, request_id: str) -> None:
-    safe_title = "".join(char if char.isalnum() or char in "._- " else "_" for char in title).strip()
-    safe_title = safe_title[:80] or "trascrizione"
-    filename = f"{safe_title} - transcript.txt"
+    del title
+    filename = "transcript.txt"
     with tempfile.TemporaryDirectory() as temp_dir:
         transcript_path = Path(temp_dir) / filename
         transcript_path.write_text(transcript_text, encoding="utf-8")
@@ -241,7 +237,6 @@ async def send_transcript_file(message, title: str, transcript_text: str, reques
             await message.reply_document(
                 document=transcript_file,
                 filename=filename,
-                caption="Trascrizione integrale",
                 read_timeout=120,
                 write_timeout=120,
                 connect_timeout=30,
