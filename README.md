@@ -1,6 +1,7 @@
 # Videogram
 
 Bot Telegram containerizzato che intercetta link video in chat e li ripubblica come video nativi Telegram.
+Quando l'estrattore non trova un video, Videogram prova anche a ripubblicare foto, gallery o testo del post.
 
 Supporta:
 
@@ -24,6 +25,8 @@ Supporta:
 - `tiktok.com/@.../video/...`
 - `vm.tiktok.com/...`
 - `vt.tiktok.com/...`
+
+Per Reddit, Instagram, X/Twitter, Facebook, Threads e TikTok il supporto non-video e' best effort: se `yt-dlp` espone immagini/gallery/testo, Videogram li invia come foto, media group o testo Telegram.
 
 Nota: il supporto Threads usa un plugin `yt-dlp` esterno, installato da GitHub e bloccato a commit specifico in `requirements.txt`.
 

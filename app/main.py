@@ -4,14 +4,14 @@ import time
 import uuid
 from pathlib import Path
 
-from telegram import Update
+from telegram import InputMediaPhoto, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.captions import build_video_caption
 from app.config import load_settings
-from app.downloader import DownloadError, TranscriptError, VideoDownloader
+from app.downloader import DownloadedPost, DownloadError, TranscriptError, VideoDownloader
 from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
@@ -118,7 +118,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         request_id = uuid.uuid4().hex[:12]
         request_started_at = time.perf_counter()
         status = await message.reply_text("Preparo il video...")
-        downloaded = None
+        post = None
         try:
             logger.info(
                 "request_id=%s process_start chat_id=%s message_id=%s url=%s",
@@ -128,26 +128,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 link,
             )
             await context.bot.send_chat_action(message.chat_id, ChatAction.UPLOAD_VIDEO)
-            downloaded = await downloader.download(link, request_id)
+            post = await downloader.download_post(link, request_id)
 
-            caption = build_video_caption(downloaded.source_url, downloaded.title, downloaded.description)
+            caption = build_video_caption(post.source_url, post.title, post.description)
             upload_started_at = time.perf_counter()
-            logger.info(
-                "request_id=%s upload_start cached=%s path=%s size_bytes=%s",
-                request_id,
-                downloaded.cached,
-                downloaded.path,
-                downloaded.path.stat().st_size,
-            )
-            sent_message = await reply_video_with_cache(message, downloader, downloaded, caption, request_id)
-            save_telegram_video_file_id(downloader, downloaded, sent_message, request_id)
+            await send_downloaded_post(message, downloader, post, caption, request_id)
             logger.info(
                 "request_id=%s upload_complete upload_elapsed_ms=%s total_elapsed_ms=%s",
                 request_id,
                 int((time.perf_counter() - upload_started_at) * 1000),
                 int((time.perf_counter() - request_started_at) * 1000),
             )
-            await maybe_send_summary(message, context, downloader, downloaded, link, request_id, status)
+            if post.video:
+                await maybe_send_summary(message, context, downloader, post.video, link, request_id, status)
             await status.delete()
         except DownloadError as exc:
             logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
@@ -162,9 +155,118 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_error = classify_upload_error(exc)
             await status.edit_text(user_error.format(request_id))
         finally:
-            if downloaded and downloaded.delete_after_send:
-                downloader.remove(downloaded.path)
-                logger.info("request_id=%s removed_after_send path=%s", request_id, downloaded.path)
+            if post and post.delete_after_send:
+                downloader.remove(post.cache_dir)
+                logger.info("request_id=%s removed_after_send path=%s", request_id, post.cache_dir)
+
+
+async def send_downloaded_post(
+    message,
+    downloader: VideoDownloader,
+    post: DownloadedPost,
+    caption: str,
+    request_id: str,
+) -> None:
+    if post.video:
+        logger.info(
+            "request_id=%s upload_start type=video cached=%s path=%s size_bytes=%s",
+            request_id,
+            post.video.cached,
+            post.video.path,
+            post.video.path.stat().st_size,
+        )
+        sent_message = await reply_video_with_cache(message, downloader, post.video, caption, request_id)
+        save_telegram_video_file_id(downloader, post.video, sent_message, request_id)
+        return
+
+    if post.photos:
+        logger.info(
+            "request_id=%s upload_start type=photo photo_count=%s cached=%s",
+            request_id,
+            len(post.photos),
+            post.cached,
+        )
+        sent_messages = await reply_photos_with_cache(message, downloader, post, caption, request_id)
+        save_telegram_photo_file_ids(downloader, post, sent_messages, request_id)
+        return
+
+    text = build_video_caption(post.source_url, post.title, post.text or post.description)
+    logger.info("request_id=%s upload_start type=text chars=%s cached=%s", request_id, len(text), post.cached)
+    await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def reply_photos_with_cache(message, downloader: VideoDownloader, post: DownloadedPost, caption: str, request_id: str):
+    if post.photos and all(photo.telegram_file_id for photo in post.photos):
+        try:
+            logger.info(
+                "request_id=%s upload_photo_file_id_start photo_count=%s",
+                request_id,
+                len(post.photos),
+            )
+            media = [
+                InputMediaPhoto(
+                    media=photo.telegram_file_id,
+                    caption=caption if index == 0 else None,
+                    parse_mode=ParseMode.HTML if index == 0 else None,
+                )
+                for index, photo in enumerate(post.photos[:10])
+            ]
+            return await message.reply_media_group(media=media, read_timeout=120, write_timeout=120)
+        except TelegramError as exc:
+            logger.warning("request_id=%s upload_photo_file_id_failed error=%s", request_id, exc)
+            downloader.forget_post_photo_file_ids(post)
+
+    logger.info("request_id=%s upload_photo_file_start photo_count=%s", request_id, len(post.photos))
+    if len(post.photos) == 1:
+        with post.photos[0].path.open("rb") as photo:
+            return [
+                await message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    read_timeout=120,
+                    write_timeout=120,
+                    connect_timeout=30,
+                    pool_timeout=30,
+                )
+            ]
+
+    files = [photo.path.open("rb") for photo in post.photos[:10]]
+    try:
+        media = [
+            InputMediaPhoto(
+                media=file,
+                caption=caption if index == 0 else None,
+                parse_mode=ParseMode.HTML if index == 0 else None,
+            )
+            for index, file in enumerate(files)
+        ]
+        return await message.reply_media_group(media=media, read_timeout=120, write_timeout=120)
+    finally:
+        for file in files:
+            file.close()
+
+
+def save_telegram_photo_file_ids(
+    downloader: VideoDownloader,
+    post: DownloadedPost,
+    sent_messages,
+    request_id: str,
+) -> None:
+    file_ids: list[str] = []
+    for sent_message in sent_messages or []:
+        if not sent_message.photo:
+            continue
+        file_ids.append(sent_message.photo[-1].file_id)
+    if not file_ids:
+        return
+    downloader.save_post_photo_file_ids(post, file_ids)
+    logger.info(
+        "request_id=%s telegram_photo_file_ids_saved cache_dir=%s count=%s",
+        request_id,
+        post.cache_dir,
+        len(file_ids),
+    )
 
 
 async def reply_video_with_cache(message, downloader: VideoDownloader, downloaded, caption: str, request_id: str):

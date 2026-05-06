@@ -9,6 +9,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app.transcripts import TRANSCRIPT_CACHE_VERSION, Transcript, parse_subtitle_text
 from yt_dlp import YoutubeDL
@@ -37,6 +38,25 @@ class DownloadedVideo:
     telegram_file_id: str = ""
 
 
+@dataclass(frozen=True)
+class DownloadedPhoto:
+    path: Path
+    telegram_file_id: str = ""
+
+
+@dataclass(frozen=True)
+class DownloadedPost:
+    title: str
+    source_url: str
+    cache_dir: Path
+    description: str = ""
+    video: DownloadedVideo | None = None
+    photos: tuple[DownloadedPhoto, ...] = ()
+    text: str = ""
+    cached: bool = False
+    delete_after_send: bool = False
+
+
 class VideoDownloader:
     def __init__(
         self,
@@ -58,6 +78,9 @@ class VideoDownloader:
     async def download(self, url: str, request_id: str) -> DownloadedVideo:
         return await asyncio.to_thread(self._download_sync, url, request_id)
 
+    async def download_post(self, url: str, request_id: str) -> DownloadedPost:
+        return await asyncio.to_thread(self._download_post_sync, url, request_id)
+
     async def extract_transcript(
         self,
         url: str,
@@ -70,6 +93,10 @@ class VideoDownloader:
         return self.download_dir / hashlib.sha256(url.encode("utf-8")).hexdigest()
 
     def remove(self, path: Path) -> None:
+        if path.exists() and path.is_dir() and path.parent == self.download_dir:
+            logger.info("request cleanup removing_cache_dir path=%s", path)
+            shutil.rmtree(path, ignore_errors=True)
+            return
         parent = path.parent
         if parent.exists() and parent.parent == self.download_dir:
             logger.info("request cleanup removing_cache_dir path=%s", parent)
@@ -206,6 +233,153 @@ class VideoDownloader:
             delete_after_send=delete_after_send,
         )
 
+    def _download_post_sync(self, url: str, request_id: str) -> DownloadedPost:
+        cached_post = self._load_cached_post(self.cache_dir_for_url(url), url)
+        if cached_post:
+            self._touch_cache(cached_post.cache_dir)
+            logger.info(
+                "request_id=%s post_cache_hit key=%s type=%s photo_count=%s",
+                request_id,
+                cached_post.cache_dir.name[:12],
+                "photo" if cached_post.photos else "text",
+                len(cached_post.photos),
+            )
+            return cached_post
+
+        try:
+            video = self._download_sync(url, request_id)
+            return DownloadedPost(
+                title=video.title,
+                source_url=video.source_url,
+                cache_dir=video.cache_dir,
+                description=video.description,
+                video=video,
+                cached=video.cached,
+                delete_after_send=video.delete_after_send,
+            )
+        except DownloadError as video_error:
+            try:
+                return self._download_non_video_post_sync(url, request_id)
+            except DownloadError:
+                raise video_error
+
+    def _download_non_video_post_sync(self, url: str, request_id: str) -> DownloadedPost:
+        cache_dir = self.cache_dir_for_url(url)
+        cache_key = cache_dir.name
+        logger.info("request_id=%s post_extract_start key=%s url=%s", request_id, cache_key[:12], url)
+        self._prune_cache()
+        temp_dir = self.download_dir / f"{uuid.uuid4().hex}.post.part"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        options = {
+            "skip_download": True,
+            "noplaylist": False,
+            "quiet": True,
+            "no_warnings": True,
+            "js_runtimes": {"node": {}},
+        }
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        if runtime_cookies:
+            options["cookiefile"] = str(runtime_cookies)
+
+        try:
+            with YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as exc:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.warning("request_id=%s post_extract_failed url=%s error=%s", request_id, url, exc)
+            raise DownloadError(str(exc)) from exc
+
+        title = info.get("title") or "Post"
+        description = info.get("description") or ""
+        image_urls = self._collect_image_urls(info)
+        photo_paths: list[Path] = []
+        total_bytes = 0
+        for index, image_url in enumerate(image_urls[:10], start=1):
+            try:
+                photo_path = self._download_image(image_url, temp_dir, index)
+            except Exception as exc:
+                logger.warning(
+                    "request_id=%s post_image_download_failed index=%s url=%s error=%s",
+                    request_id,
+                    index,
+                    image_url,
+                    exc,
+                )
+                continue
+            total_bytes += photo_path.stat().st_size
+            if total_bytes > self.max_download_bytes:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                raise DownloadError("The downloaded post media is larger than the configured limit.")
+            photo_paths.append(photo_path)
+
+        text = description or title
+        if not photo_paths and not text.strip():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise DownloadError("No downloadable media or text was found for this post.")
+
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        temp_dir.rename(cache_dir)
+        photos = tuple(DownloadedPhoto(cache_dir / path.name) for path in photo_paths)
+        self._write_post_metadata(cache_dir, url, title, description, text, photos)
+        delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
+        logger.info(
+            "request_id=%s post_extract_complete key=%s photo_count=%s text_chars=%s "
+            "free_disk_percent=%.2f delete_after_send=%s",
+            request_id,
+            cache_key[:12],
+            len(photos),
+            len(text),
+            self._free_disk_percent(),
+            delete_after_send,
+        )
+        return DownloadedPost(
+            title=title,
+            source_url=url,
+            cache_dir=cache_dir,
+            description=description,
+            photos=photos,
+            text=text,
+            delete_after_send=delete_after_send,
+        )
+
+    def _collect_image_urls(self, info: dict) -> list[str]:
+        urls: list[str] = []
+
+        def add_url(candidate: str | None) -> None:
+            if not candidate or candidate in urls:
+                return
+            path = urlparse(candidate).path.lower()
+            if any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
+                urls.append(candidate)
+
+        def walk(item) -> None:
+            if not isinstance(item, dict):
+                return
+            ext = (item.get("ext") or "").lower()
+            if ext in {"jpg", "jpeg", "png", "webp"}:
+                add_url(item.get("url"))
+            add_url(item.get("thumbnail"))
+            thumbnails = item.get("thumbnails") or []
+            for thumbnail in sorted(thumbnails, key=lambda entry: entry.get("width") or 0, reverse=True):
+                add_url(thumbnail.get("url"))
+            for entry in item.get("entries") or []:
+                walk(entry)
+
+        walk(info)
+        return urls
+
+    def _download_image(self, url: str, temp_dir: Path, index: int) -> Path:
+        suffix = Path(urlparse(url).path).suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+            suffix = ".jpg"
+        path = temp_dir / f"photo-{index:02d}{suffix}"
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request, timeout=60) as response:
+            path.write_bytes(response.read())
+        return path
+
     def save_telegram_file_id(self, downloaded: DownloadedVideo, file_id: str) -> None:
         if not file_id:
             return
@@ -213,6 +387,14 @@ class VideoDownloader:
 
     def forget_telegram_file_id(self, downloaded: DownloadedVideo) -> None:
         self._update_metadata(downloaded.cache_dir, {"telegram_file_id": ""})
+
+    def save_post_photo_file_ids(self, post: DownloadedPost, file_ids: list[str]) -> None:
+        if not file_ids:
+            return
+        self._update_metadata(post.cache_dir, {"telegram_photo_file_ids": file_ids})
+
+    def forget_post_photo_file_ids(self, post: DownloadedPost) -> None:
+        self._update_metadata(post.cache_dir, {"telegram_photo_file_ids": []})
 
     def cached_transcript_file_id(self, cache_dir: Path, preferred_langs: tuple[str, ...]) -> str:
         metadata = self._load_cached_transcript_metadata(cache_dir, preferred_langs)
@@ -533,6 +715,35 @@ class VideoDownloader:
             telegram_file_id=metadata.get("telegram_file_id") or "",
         )
 
+    def _load_cached_post(self, cache_dir: Path, url: str) -> DownloadedPost | None:
+        metadata_path = cache_dir / "metadata.json"
+        if not metadata_path.exists():
+            return None
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if metadata.get("source_url") != url or metadata.get("content_type") not in {"photo", "text"}:
+            return None
+
+        photo_file_ids = metadata.get("telegram_photo_file_ids") or []
+        photos: list[DownloadedPhoto] = []
+        for index, filename in enumerate(metadata.get("photo_filenames") or []):
+            path = cache_dir / filename
+            if path.exists() and path.is_file():
+                file_id = photo_file_ids[index] if index < len(photo_file_ids) else ""
+                photos.append(DownloadedPhoto(path=path, telegram_file_id=file_id))
+
+        return DownloadedPost(
+            title=metadata.get("title") or "Post",
+            source_url=url,
+            cache_dir=cache_dir,
+            description=metadata.get("description") or "",
+            photos=tuple(photos),
+            text=metadata.get("text") or "",
+            cached=True,
+        )
+
     def _write_metadata(self, cache_dir: Path, url: str, title: str, description: str, filename: str) -> None:
         now = time.time()
         metadata = {
@@ -540,6 +751,28 @@ class VideoDownloader:
             "title": title,
             "description": description,
             "filename": filename,
+            "created_at": now,
+            "last_accessed_at": now,
+        }
+        (cache_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    def _write_post_metadata(
+        self,
+        cache_dir: Path,
+        url: str,
+        title: str,
+        description: str,
+        text: str,
+        photos: tuple[DownloadedPhoto, ...],
+    ) -> None:
+        now = time.time()
+        metadata = {
+            "source_url": url,
+            "title": title,
+            "description": description,
+            "content_type": "photo" if photos else "text",
+            "photo_filenames": [photo.path.name for photo in photos],
+            "text": text,
             "created_at": now,
             "last_accessed_at": now,
         }

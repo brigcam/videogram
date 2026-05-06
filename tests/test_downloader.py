@@ -96,6 +96,60 @@ class DownloaderTests(unittest.TestCase):
 
             self.assertEqual(downloader.cached_transcript_file_id(cache_dir, preferred_langs), "")
 
+    def test_collects_image_urls_from_entries(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+        info = {
+            "entries": [
+                {"url": "https://example.com/one.jpg", "ext": "jpg"},
+                {"url": "https://example.com/two.mp4", "ext": "mp4"},
+                {"thumbnail": "https://example.com/three.webp"},
+            ]
+        }
+
+        self.assertEqual(
+            downloader._collect_image_urls(info),
+            ["https://example.com/one.jpg", "https://example.com/three.webp"],
+        )
+
+    def test_loads_cached_photo_post(self) -> None:
+        url = "https://example.com/post"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = VideoDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+            )
+            cache_dir = downloader.cache_dir_for_url(url)
+            cache_dir.mkdir()
+            photo_path = cache_dir / "photo-01.jpg"
+            photo_path.write_bytes(b"x")
+            (cache_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "source_url": url,
+                        "title": "Post",
+                        "description": "Desc",
+                        "content_type": "photo",
+                        "photo_filenames": [photo_path.name],
+                        "telegram_photo_file_ids": ["photo-file-id"],
+                        "text": "Post text",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            post = downloader._load_cached_post(cache_dir, url)
+
+            self.assertIsNotNone(post)
+            self.assertEqual(post.photos[0].telegram_file_id, "photo-file-id")
+            self.assertEqual(post.text, "Post text")
+
 
 if __name__ == "__main__":
     unittest.main()
