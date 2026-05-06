@@ -22,7 +22,15 @@ class DownloaderTests(unittest.TestCase):
             video_path = cache_dir / "video.mp4"
             video_path.write_bytes(b"x" * 11)
             (cache_dir / "metadata.json").write_text(
-                json.dumps({"source_url": url, "title": "Video", "description": "Desc", "filename": video_path.name}),
+                json.dumps(
+                    {
+                        "source_url": url,
+                        "title": "Video",
+                        "description": "Desc",
+                        "filename": video_path.name,
+                        "max_download_bytes": 100,
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -54,17 +62,30 @@ class DownloaderTests(unittest.TestCase):
             video_path = cache_dir / "video.mp4"
             video_path.write_bytes(b"x")
             (cache_dir / "metadata.json").write_text(
-                json.dumps({"source_url": url, "title": "Video", "description": "Desc", "filename": video_path.name}),
+                json.dumps(
+                    {
+                        "source_url": url,
+                        "title": "Video",
+                        "description": "Desc",
+                        "filename": video_path.name,
+                        "max_download_bytes": 50,
+                    }
+                ),
                 encoding="utf-8",
             )
 
             downloaded = downloader._load_cached_video(cache_dir, url)
             self.assertIsNotNone(downloaded)
             self.assertEqual(downloaded.description, "Desc")
+            self.assertEqual(downloaded.cached_max_download_bytes, 50)
+            self.assertTrue(downloader._cached_video_needs_quality_refresh(downloaded))
             downloader.save_telegram_file_id(downloaded, "telegram-file-id")
+            downloader._mark_video_cache_checked_for_current_limit(cache_dir)
 
             reloaded = downloader._load_cached_video(cache_dir, url)
             self.assertEqual(reloaded.telegram_file_id, "telegram-file-id")
+            self.assertEqual(reloaded.cached_max_download_bytes, 100)
+            self.assertFalse(downloader._cached_video_needs_quality_refresh(reloaded))
 
     def test_saves_and_loads_transcript_document_file_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

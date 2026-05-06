@@ -36,6 +36,7 @@ class DownloadedVideo:
     cached: bool = False
     delete_after_send: bool = False
     telegram_file_id: str = ""
+    cached_max_download_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -116,7 +117,6 @@ class VideoDownloader:
             shutil.rmtree(parent, ignore_errors=True)
 
     def _download_sync(self, url: str, request_id: str) -> DownloadedVideo:
-        started_at = time.perf_counter()
         cache_dir = self.cache_dir_for_url(url)
         cache_key = cache_dir.name
         cached = self._load_cached_video(cache_dir, url)
@@ -133,6 +133,25 @@ class VideoDownloader:
                     self.max_telegram_upload_bytes,
                 )
                 raise DownloadError("The cached video is larger than the Telegram upload limit.")
+            if self._cached_video_needs_quality_refresh(cached):
+                logger.info(
+                    "request_id=%s cache_quality_refresh_start key=%s cached_max_download_bytes=%s "
+                    "current_max_download_bytes=%s",
+                    request_id,
+                    cache_key[:12],
+                    cached.cached_max_download_bytes,
+                    self.max_download_bytes,
+                )
+                try:
+                    return self._download_best_video(url, request_id, cache_dir, cache_key)
+                except DownloadError as exc:
+                    logger.warning(
+                        "request_id=%s cache_quality_refresh_failed key=%s error=%s",
+                        request_id,
+                        cache_key[:12],
+                        exc,
+                    )
+                    self._mark_video_cache_checked_for_current_limit(cache_dir)
             self._touch_cache(cache_dir)
             logger.info(
                 "request_id=%s cache_hit key=%s path=%s size_bytes=%s",
@@ -145,7 +164,15 @@ class VideoDownloader:
 
         logger.info("request_id=%s cache_miss key=%s url=%s", request_id, cache_key[:12], url)
         self._prune_cache()
+        return self._download_best_video(url, request_id, cache_dir, cache_key)
 
+    def _download_best_video(
+        self,
+        url: str,
+        request_id: str,
+        cache_dir: Path,
+        cache_key: str,
+    ) -> DownloadedVideo:
         format_max_bytes = min(self.max_download_bytes, self.max_telegram_upload_bytes)
         last_error: Exception | None = None
         for profile_name, format_selector in self._video_format_profiles(format_max_bytes):
@@ -165,6 +192,12 @@ class VideoDownloader:
         if last_error:
             raise last_error
         raise DownloadError("No downloadable video format was found.")
+
+    def _cached_video_needs_quality_refresh(self, cached: DownloadedVideo) -> bool:
+        return cached.cached_max_download_bytes < self.max_download_bytes
+
+    def _mark_video_cache_checked_for_current_limit(self, cache_dir: Path) -> None:
+        self._update_metadata(cache_dir, {"max_download_bytes": self.max_download_bytes})
 
     def _download_video_attempt(
         self,
@@ -891,6 +924,7 @@ class VideoDownloader:
             description=metadata.get("description") or "",
             cached=True,
             telegram_file_id=metadata.get("telegram_file_id") or "",
+            cached_max_download_bytes=int(metadata.get("max_download_bytes") or 0),
         )
 
     def _load_cached_post(self, cache_dir: Path, url: str) -> DownloadedPost | None:
@@ -966,6 +1000,7 @@ class VideoDownloader:
             "title": title,
             "description": description,
             "filename": filename,
+            "max_download_bytes": self.max_download_bytes,
             "created_at": now,
             "last_accessed_at": now,
         }
