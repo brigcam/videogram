@@ -26,6 +26,26 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
             "Esporta i cookies Reddit in ./cookies/reddit.txt e riprova.",
         )
 
+    if ("login required" in message or "authentication" in message or "cookies" in message) and "instagram" in message:
+        return UserErrorMessage(
+            "Instagram richiede una sessione autenticata.",
+            "Esporta i cookies Instagram in ./cookies/instagram.txt e riprova.",
+        )
+
+    if ("login required" in message or "authentication" in message or "cookies" in message) and "facebook" in message:
+        return UserErrorMessage(
+            "Facebook richiede una sessione autenticata.",
+            "Esporta i cookies Facebook in ./cookies/facebook.txt e riprova.",
+        )
+
+    if ("login required" in message or "authentication" in message or "cookies" in message) and (
+        "twitter" in message or "x.com" in message
+    ):
+        return UserErrorMessage(
+            "X/Twitter richiede una sessione autenticata.",
+            "Esporta i cookies di X in ./cookies/x.txt e riprova.",
+        )
+
     if "read-only file system" in message and "cookies" in message:
         return UserErrorMessage(
             "Il file cookies non e scrivibile dal container.",
@@ -65,7 +85,7 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
     if "unsupported url" in message:
         return UserErrorMessage(
             "Questo link non e supportato.",
-            "Per ora Videogram gestisce solo link YouTube riconosciuti.",
+            "Videogram gestisce solo link riconosciuti delle piattaforme supportate.",
         )
 
     if "timed out" in message or "timeout" in message:

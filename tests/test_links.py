@@ -1,6 +1,14 @@
 import unittest
 
-from app.links import extract_supported_links, normalize_reddit_url, normalize_youtube_url
+from app.links import (
+    extract_supported_links,
+    normalize_facebook_url,
+    normalize_instagram_url,
+    normalize_reddit_url,
+    normalize_threads_url,
+    normalize_x_url,
+    normalize_youtube_url,
+)
 
 
 class YoutubeLinkTests(unittest.TestCase):
@@ -58,6 +66,66 @@ class YoutubeLinkTests(unittest.TestCase):
             [
                 "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                 "https://www.reddit.com/r/oddlyterrifying/comments/1t4tsgz/he_was_being_watched_the_entire_time/",
+            ],
+        )
+
+    def test_normalizes_instagram_reels(self) -> None:
+        self.assertEqual(
+            normalize_instagram_url("https://www.instagram.com/reel/C7abcDEF123/?igsh=tracking"),
+            "https://www.instagram.com/reel/C7abcDEF123/",
+        )
+
+    def test_normalizes_instagram_posts(self) -> None:
+        self.assertEqual(
+            normalize_instagram_url("https://m.instagram.com/p/C7abcDEF123/"),
+            "https://www.instagram.com/p/C7abcDEF123/",
+        )
+
+    def test_normalizes_facebook_watch_urls(self) -> None:
+        self.assertEqual(
+            normalize_facebook_url("https://www.facebook.com/watch/?v=123456789012345&ref=share"),
+            "https://www.facebook.com/watch/?v=123456789012345",
+        )
+
+    def test_normalizes_facebook_reels(self) -> None:
+        self.assertEqual(
+            normalize_facebook_url("https://m.facebook.com/reel/123456789012345/"),
+            "https://www.facebook.com/reel/123456789012345/",
+        )
+
+    def test_normalizes_threads_posts(self) -> None:
+        self.assertEqual(
+            normalize_threads_url("https://www.threads.net/@openai/post/C7abcDEF123?xmt=AQGz"),
+            "https://www.threads.net/@openai/post/C7abcDEF123/",
+        )
+
+    def test_normalizes_threads_short_posts(self) -> None:
+        self.assertEqual(
+            normalize_threads_url("https://threads.com/t/C7abcDEF123"),
+            "https://www.threads.net/t/C7abcDEF123/",
+        )
+
+    def test_normalizes_x_statuses(self) -> None:
+        self.assertEqual(
+            normalize_x_url("https://twitter.com/openai/status/1234567890123456789?s=20"),
+            "https://x.com/openai/status/1234567890123456789",
+        )
+
+    def test_extracts_all_supported_social_links(self) -> None:
+        text = (
+            "https://www.instagram.com/reel/C7abcDEF123/ "
+            "https://www.facebook.com/watch/?v=123456789012345 "
+            "https://www.threads.net/@openai/post/C7abcDEF123 "
+            "https://x.com/openai/status/1234567890123456789"
+        )
+
+        self.assertEqual(
+            extract_supported_links(text),
+            [
+                "https://www.instagram.com/reel/C7abcDEF123/",
+                "https://www.facebook.com/watch/?v=123456789012345",
+                "https://www.threads.net/@openai/post/C7abcDEF123/",
+                "https://x.com/openai/status/1234567890123456789",
             ],
         )
 

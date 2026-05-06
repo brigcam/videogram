@@ -2,7 +2,7 @@
 
 Bot Telegram containerizzato che intercetta link video in chat e li ripubblica come video nativi Telegram.
 
-Per ora supporta YouTube:
+Supporta:
 
 - `youtube.com/watch?v=...`
 - `youtu.be/...`
@@ -11,6 +11,16 @@ Per ora supporta YouTube:
 - `reddit.com/r/.../comments/...`
 - `old.reddit.com/r/.../comments/...`
 - `redd.it/...`
+- `instagram.com/reel/...`
+- `instagram.com/p/...`
+- `instagram.com/tv/...`
+- `facebook.com/watch/?v=...`
+- `facebook.com/reel/...`
+- `fb.watch/...`
+- `threads.net/@.../post/...`
+- `threads.com/t/...`
+- `x.com/.../status/...`
+- `twitter.com/.../status/...`
 
 ## Avvio rapido
 
@@ -28,7 +38,7 @@ nano .env
 docker compose up -d --build
 ```
 
-4. Aggiungi il bot a una chat o scrivigli in privato, poi manda un link YouTube.
+4. Aggiungi il bot a una chat o scrivigli in privato, poi manda un link video supportato.
 
 Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFather, altrimenti il bot non riceve tutti i messaggi normali della chat.
 
@@ -47,7 +57,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
 | `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
 | `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per video YouTube che richiedono login/verifica |
-| `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt` e `reddit.txt` |
+| `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt` e `x.txt` |
 
 I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
@@ -79,10 +89,14 @@ Quando `ALLOWED_CHAT_IDS` e' attiva, Videogram ignora le chat di gruppo non auto
 
 ## Cookies
 
-Alcuni video YouTube possono fallire con un messaggio tipo `Sign in to confirm you're not a bot`. Alcuni post Reddit possono richiedere una sessione autenticata. In questi casi esporta i cookies in formato Netscape e salvali localmente, per esempio:
+Alcune piattaforme possono richiedere una sessione autenticata o applicare controlli anti-bot. In questi casi esporta i cookies in formato Netscape e salvali localmente, per esempio:
 
 - `./cookies/youtube.txt`
 - `./cookies/reddit.txt`
+- `./cookies/instagram.txt`
+- `./cookies/facebook.txt`
+- `./cookies/threads.txt`
+- `./cookies/x.txt`
 
 Poi aggiungi al tuo `.env`:
 

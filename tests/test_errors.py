@@ -34,6 +34,24 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("Reddit", message.title)
         self.assertIn("reddit.txt", message.detail)
 
+    def test_download_instagram_auth_message(self) -> None:
+        message = classify_download_error(RuntimeError("[Instagram] Login required to access this profile"))
+
+        self.assertIn("Instagram", message.title)
+        self.assertIn("instagram.txt", message.detail)
+
+    def test_download_facebook_auth_message(self) -> None:
+        message = classify_download_error(RuntimeError("[facebook] authentication required"))
+
+        self.assertIn("Facebook", message.title)
+        self.assertIn("facebook.txt", message.detail)
+
+    def test_download_x_auth_message(self) -> None:
+        message = classify_download_error(RuntimeError("[twitter] login required"))
+
+        self.assertIn("X/Twitter", message.title)
+        self.assertIn("x.txt", message.detail)
+
     def test_message_includes_request_id(self) -> None:
         formatted = classify_download_error(RuntimeError("unknown")).format("abc123")
 

@@ -86,7 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             update.effective_message.message_id,
         )
         await update.effective_message.reply_text(
-            "Ciao, sono Videogram. Mandami un link YouTube e lo ripubblico come video nativo Telegram."
+            "Ciao, sono Videogram. Mandami un link video supportato e lo ripubblico come video nativo Telegram."
         )
 
 
