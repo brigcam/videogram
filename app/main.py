@@ -486,7 +486,14 @@ async def publish_summary_task(
             logger.warning("request_id=%s summary_error_publish_failed url=%s error=%s", request_id, link, exc)
         return
 
-    if not result.summary or not result.transcript:
+    if not result.transcript:
+        try:
+            await message.reply_text(f"Non ho trovato una trascrizione disponibile.\n\nID richiesta: {request_id}")
+        except TelegramError as exc:
+            logger.warning("request_id=%s transcript_not_found_publish_failed url=%s error=%s", request_id, link, exc)
+        return
+
+    if not result.summary:
         return
 
     try:

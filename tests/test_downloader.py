@@ -321,6 +321,58 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(transcript.language, "it")
         self.assertEqual(transcript.source, "youtube_timedtext_translated")
 
+    def test_youtube_subtitle_download_error_is_not_silenced(self) -> None:
+        class FakeDownloader(VideoDownloader):
+            def _select_subtitle(self, info: dict, preferred_langs: tuple[str, ...]):
+                return "it", "automatic", {"url": "https://example.com/subtitles", "ext": "json3"}
+
+            def _download_subtitle_text(self, url: str) -> str:
+                raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+
+            def _extract_youtube_timedtext_transcript(
+                self,
+                info: dict,
+                url: str,
+                request_id: str,
+                preferred_langs: tuple[str, ...],
+            ):
+                return None
+
+        class FakeYDL:
+            def __init__(self, options: dict) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                pass
+
+            def extract_info(self, url: str, download: bool = False) -> dict:
+                return {"id": "abc123"}
+
+        downloader = FakeDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+
+        import app.downloader as downloader_module
+
+        original_youtube_dl = downloader_module.YoutubeDL
+        downloader_module.YoutubeDL = FakeYDL
+        try:
+            with self.assertRaises(urllib.error.HTTPError):
+                downloader._extract_transcript_once(
+                    "https://www.youtube.com/watch?v=abc123",
+                    "test-request",
+                    ("it",),
+                    {},
+                )
+        finally:
+            downloader_module.YoutubeDL = original_youtube_dl
+
 
 if __name__ == "__main__":
     unittest.main()

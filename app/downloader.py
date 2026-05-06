@@ -734,12 +734,14 @@ class VideoDownloader:
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=False)
         subtitle = self._select_subtitle(info, preferred_langs)
+        subtitle_download_error: Exception | None = None
         if subtitle:
             language, source, subtitle_format = subtitle
             try:
                 raw_text = self._download_subtitle_text(subtitle_format["url"])
                 transcript_text = parse_subtitle_text(raw_text, subtitle_format.get("ext") or "")
             except Exception as exc:
+                subtitle_download_error = exc
                 logger.warning(
                     "request_id=%s transcript_primary_download_failed url=%s language=%s source=%s error=%s",
                     request_id,
@@ -770,6 +772,8 @@ class VideoDownloader:
         transcript = self._extract_youtube_timedtext_transcript(info, url, request_id, preferred_langs)
         if transcript:
             return transcript
+        if subtitle_download_error:
+            raise subtitle_download_error
         logger.info("request_id=%s transcript_not_found url=%s", request_id, url)
         return None
 
