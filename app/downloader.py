@@ -33,13 +33,15 @@ class VideoDownloader:
     def __init__(
         self,
         download_dir: str,
-        max_bytes: int,
+        max_download_bytes: int,
+        max_telegram_upload_bytes: int,
         min_free_disk_percent: float,
         cookies_file: str = "",
         cookies_dir: str = "",
     ) -> None:
         self.download_dir = Path(download_dir)
-        self.max_bytes = max_bytes
+        self.max_download_bytes = max_download_bytes
+        self.max_telegram_upload_bytes = max_telegram_upload_bytes
         self.min_free_disk_percent = min_free_disk_percent
         self.cookies_file = Path(cookies_file) if cookies_file else None
         self.cookies_dir = Path(cookies_dir) if cookies_dir else None
@@ -71,6 +73,18 @@ class VideoDownloader:
         cache_key = cache_dir.name
         cached = self._load_cached_video(cache_dir, url)
         if cached:
+            size_bytes = cached.path.stat().st_size
+            if size_bytes > self.max_telegram_upload_bytes:
+                logger.warning(
+                    "request_id=%s cache_hit_too_large key=%s path=%s size_bytes=%s "
+                    "max_telegram_upload_bytes=%s",
+                    request_id,
+                    cache_key[:12],
+                    cached.path,
+                    size_bytes,
+                    self.max_telegram_upload_bytes,
+                )
+                raise DownloadError("The cached video is larger than the Telegram upload limit.")
             self._touch_cache(cache_dir)
             logger.info(
                 "request_id=%s cache_hit key=%s path=%s size_bytes=%s",
@@ -86,6 +100,7 @@ class VideoDownloader:
 
         temp_dir = self.download_dir / f"{uuid.uuid4().hex}.part"
         temp_dir.mkdir(parents=True, exist_ok=True)
+        format_max_bytes = min(self.max_download_bytes, self.max_telegram_upload_bytes)
 
         options = {
             "format": (
@@ -96,10 +111,10 @@ class VideoDownloader:
                 "bv*[ext=mp4]+ba[ext=m4a]/"
                 "b[ext=mp4]/"
                 "best"
-            ).format(self.max_bytes),
+            ).format(format_max_bytes),
             "outtmpl": str(temp_dir / "%(title).180B [%(id)s].%(ext)s"),
             "merge_output_format": "mp4",
-            "max_filesize": self.max_bytes,
+            "max_filesize": self.max_download_bytes,
             "js_runtimes": {"node": {}},
             "noplaylist": True,
             "quiet": True,
@@ -128,17 +143,30 @@ class VideoDownloader:
                 raise DownloadError("Download completed, but no video file was produced.")
             path = mp4_files[-1]
 
-        if path.stat().st_size > self.max_bytes:
+        if path.stat().st_size > self.max_download_bytes:
             size_bytes = path.stat().st_size
             shutil.rmtree(temp_dir, ignore_errors=True)
             logger.warning(
-                "request_id=%s download_too_large size_bytes=%s max_bytes=%s url=%s",
+                "request_id=%s download_too_large size_bytes=%s max_download_bytes=%s url=%s",
                 request_id,
                 size_bytes,
-                self.max_bytes,
+                self.max_download_bytes,
                 url,
             )
             raise DownloadError("The downloaded video is larger than the configured limit.")
+
+        if path.stat().st_size > self.max_telegram_upload_bytes:
+            size_bytes = path.stat().st_size
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.warning(
+                "request_id=%s download_too_large_for_telegram size_bytes=%s "
+                "max_telegram_upload_bytes=%s url=%s",
+                request_id,
+                size_bytes,
+                self.max_telegram_upload_bytes,
+                url,
+            )
+            raise DownloadError("The downloaded video is larger than the Telegram upload limit.")
 
         if cache_dir.exists():
             shutil.rmtree(cache_dir, ignore_errors=True)

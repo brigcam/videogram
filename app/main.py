@@ -286,6 +286,7 @@ def main() -> None:
     downloader = VideoDownloader(
         settings.download_dir,
         settings.max_download_bytes,
+        settings.max_telegram_upload_bytes,
         settings.min_free_disk_percent,
         settings.ytdlp_cookies_file,
         settings.ytdlp_cookies_dir,
@@ -308,12 +309,14 @@ def main() -> None:
     application.add_error_handler(handle_error)
 
     logger.info(
-        "Videogram started download_dir=%s max_download_mb=%s min_free_disk_percent=%s "
+        "Videogram started download_dir=%s max_download_mb=%s max_telegram_upload_mb=%s "
+        "min_free_disk_percent=%s "
         "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s chat_whitelist_enabled=%s "
         "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
         "summary_model=%s summary_langs=%s",
         settings.download_dir,
         settings.max_download_mb,
+        settings.max_telegram_upload_mb,
         settings.min_free_disk_percent,
         settings.log_file,
         settings.log_max_mb,

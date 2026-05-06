@@ -16,7 +16,8 @@ class Settings:
     openai_summary_max_transcript_chars: int = 20000
     summary_transcript_langs: tuple[str, ...] = ("it", "en")
     download_dir: str = "/tmp/videogram-downloads"
-    max_download_mb: int = 48
+    max_download_mb: int = 512
+    max_telegram_upload_mb: int = 48
     min_free_disk_percent: float = 5.0
     log_level: str = "INFO"
     log_file: str = "/var/log/videogram/videogram.log"
@@ -28,6 +29,10 @@ class Settings:
     @property
     def max_download_bytes(self) -> int:
         return self.max_download_mb * 1024 * 1024
+
+    @property
+    def max_telegram_upload_bytes(self) -> int:
+        return self.max_telegram_upload_mb * 1024 * 1024
 
     @property
     def log_max_bytes(self) -> int:
@@ -53,7 +58,8 @@ def load_settings() -> Settings:
         openai_summary_max_transcript_chars=int(os.getenv("OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS", "20000")),
         summary_transcript_langs=parse_string_list(os.getenv("SUMMARY_TRANSCRIPT_LANGS", "it,en")),
         download_dir=os.getenv("DOWNLOAD_DIR", "/tmp/videogram-downloads"),
-        max_download_mb=int(os.getenv("MAX_DOWNLOAD_MB", "48")),
+        max_download_mb=int(os.getenv("MAX_DOWNLOAD_MB", "512")),
+        max_telegram_upload_mb=int(os.getenv("MAX_TELEGRAM_UPLOAD_MB", "48")),
         min_free_disk_percent=float(os.getenv("MIN_FREE_DISK_PERCENT", "5")),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         log_file=os.getenv("LOG_FILE", "/var/log/videogram/videogram.log"),

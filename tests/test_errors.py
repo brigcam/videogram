@@ -16,6 +16,12 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("limite", message.title)
         self.assertIn("MAX_DOWNLOAD_MB", message.detail)
 
+    def test_telegram_upload_limit_message(self) -> None:
+        message = classify_download_error(RuntimeError("The downloaded video is larger than the Telegram upload limit."))
+
+        self.assertIn("Telegram", message.title)
+        self.assertIn("50 MB", message.detail)
+
     def test_download_read_only_cookies_message(self) -> None:
         message = classify_download_error(RuntimeError("[Errno 30] Read-only file system: '/cookies/youtube.txt'"))
 

@@ -56,7 +56,8 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `OPENAI_SUMMARY_PROMPT` | vedi `.env.example` | Prompt usato per trasformare la trascrizione in riassunto |
 | `OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS` | `20000` | Numero massimo di caratteri di trascrizione inviati a OpenAI |
 | `SUMMARY_TRANSCRIPT_LANGS` | `it,en` | Lingue preferite per sottotitoli/trascrizioni, separate da virgola |
-| `MAX_DOWNLOAD_MB` | `48` | Limite massimo del file scaricato |
+| `MAX_DOWNLOAD_MB` | `512` | Limite massimo del file scaricato e salvato in cache |
+| `MAX_TELEGRAM_UPLOAD_MB` | `48` | Limite massimo del file inviato tramite Bot API pubblico. Deve restare sotto i 50 MB di Telegram |
 | `DOWNLOAD_DIR` | `/tmp/videogram-downloads` | Cartella temporanea nel container |
 | `MIN_FREE_DISK_PERCENT` | `5` | Spazio libero minimo da mantenere nella cache locale |
 | `LOG_LEVEL` | `INFO` | Livello log Python |
@@ -68,7 +69,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 
 I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
-Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere limiti di upload diversi a seconda della modalità/API usata. Puoi aumentarlo, ma se Telegram rifiuta l'upload conviene ridurlo o passare più avanti a un uploader basato su client MTProto.
+Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un video in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram.
 
 Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
 

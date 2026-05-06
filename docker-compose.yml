@@ -12,7 +12,8 @@ services:
       OPENAI_SUMMARY_PROMPT: ${OPENAI_SUMMARY_PROMPT:-Riassumi la trascrizione del video in italiano, in modo utile e conciso. Evidenzia i punti principali e conserva eventuali dettagli concreti importanti.}
       OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS: ${OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS:-20000}
       SUMMARY_TRANSCRIPT_LANGS: ${SUMMARY_TRANSCRIPT_LANGS:-it,en}
-      MAX_DOWNLOAD_MB: ${MAX_DOWNLOAD_MB:-48}
+      MAX_DOWNLOAD_MB: ${MAX_DOWNLOAD_MB:-512}
+      MAX_TELEGRAM_UPLOAD_MB: ${MAX_TELEGRAM_UPLOAD_MB:-48}
       DOWNLOAD_DIR: ${DOWNLOAD_DIR:-/tmp/videogram-downloads}
       MIN_FREE_DISK_PERCENT: ${MIN_FREE_DISK_PERCENT:-5}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

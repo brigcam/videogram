@@ -83,6 +83,13 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
             "Aumenta MAX_DOWNLOAD_MB oppure prova un video piu piccolo.",
         )
 
+    if "larger than the telegram upload limit" in message:
+        return UserErrorMessage(
+            "Il video supera il limite upload di Telegram.",
+            "Il Bot API pubblico accetta upload fino a circa 50 MB. "
+            "Riduci MAX_TELEGRAM_UPLOAD_MB solo per tenere piu margine, oppure prova un video piu piccolo.",
+        )
+
     if "requested format is not available" in message or "no video formats found" in message:
         return UserErrorMessage(
             "Non ho trovato un formato video scaricabile.",
