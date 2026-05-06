@@ -1106,8 +1106,14 @@ def main() -> None:
     )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("usage", usage_command))
-    application.add_handler(CommandHandler("cookie", cookie_command))
-    application.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/cookie(?:@\w+)?(?:\s|$)"), cookie_command))
+    private_cookie_filter = filters.ChatType.PRIVATE
+    application.add_handler(CommandHandler("cookie", cookie_command, filters=private_cookie_filter))
+    application.add_handler(
+        MessageHandler(
+            filters.Document.ALL & filters.CaptionRegex(r"^/cookie(?:@\w+)?(?:\s|$)") & private_cookie_filter,
+            cookie_command,
+        )
+    )
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(handle_error)
