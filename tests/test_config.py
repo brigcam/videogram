@@ -1,6 +1,6 @@
 import unittest
 
-from app.config import Settings, parse_allowed_chat_ids, parse_allowed_user_ids
+from app.config import Settings, parse_allowed_chat_ids, parse_allowed_user_ids, parse_bool
 
 
 class ConfigTests(unittest.TestCase):
@@ -26,6 +26,12 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.max_download_bytes, 512 * 1024 * 1024)
         self.assertEqual(settings.max_telegram_upload_bytes, 48 * 1024 * 1024)
+
+    def test_parse_bool(self) -> None:
+        self.assertTrue(parse_bool("true"))
+        self.assertTrue(parse_bool("1"))
+        self.assertFalse(parse_bool(""))
+        self.assertFalse(parse_bool("false"))
 
 
 if __name__ == "__main__":

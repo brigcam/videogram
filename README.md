@@ -49,6 +49,11 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | Variabile | Default | Descrizione |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | obbligatoria | Token del bot Telegram |
+| `TELEGRAM_API_ID` | vuota | API ID da `my.telegram.org`, usato solo dal Bot API server locale |
+| `TELEGRAM_API_HASH` | vuota | API hash da `my.telegram.org`, usato solo dal Bot API server locale |
+| `TELEGRAM_API_BASE_URL` | vuota | Base URL Bot API custom, ad esempio `http://telegram-bot-api:8081/bot` |
+| `TELEGRAM_API_FILE_BASE_URL` | vuota | Base URL file Bot API custom, ad esempio `http://telegram-bot-api:8081/file/bot` |
+| `TELEGRAM_LOCAL_MODE` | `false` | Abilita la modalita locale del client Telegram quando usi il Bot API server self-hosted |
 | `ALLOWED_CHAT_IDS` | vuota | Lista di gruppi/supergruppi Telegram autorizzati, separati da virgola. Vuota = tutte le chat di gruppo autorizzate |
 | `ALLOWED_USER_IDS` | vuota | Lista di utenti Telegram autorizzati a usare il bot in privato, separati da virgola. Vuota = tutti gli utenti autorizzati in privato |
 | `OPENAI_API_KEY` | vuota | API key OpenAI per generare riassunti dalle trascrizioni. Vuota = riassunti disattivati |
@@ -69,9 +74,39 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 
 I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
-Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un video in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram.
+Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un video in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram. Con il Bot API server locale puoi alzare questo valore, per esempio a `1900`.
 
 Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
+
+## Bot API server locale
+
+Per superare il limite pubblico di upload da circa 50 MB puoi usare il Bot API server locale. Rimane dentro la rete Docker e non espone porte su internet.
+
+1. Vai su https://my.telegram.org, fai login con il tuo numero Telegram, entra in **API development tools** e crea una app.
+2. Copia `api_id` e `api_hash` nel `.env`:
+
+```env
+TELEGRAM_API_ID=123456
+TELEGRAM_API_HASH=abcdef123456...
+TELEGRAM_API_BASE_URL=http://telegram-bot-api:8081/bot
+TELEGRAM_API_FILE_BASE_URL=http://telegram-bot-api:8081/file/bot
+TELEGRAM_LOCAL_MODE=true
+MAX_TELEGRAM_UPLOAD_MB=1900
+```
+
+3. Prima migrazione una tantum: se il bot stava usando `api.telegram.org`, esegui `logOut` sul Bot API pubblico:
+
+```bash
+curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/logOut"
+```
+
+4. Avvia includendo il profile del server locale:
+
+```bash
+docker compose --profile local-bot-api up -d --build
+```
+
+Il servizio locale usa `./telegram-bot-api-data` per i propri dati ed e' ignorato da Git. Non pubblicare la porta `8081` verso internet: Videogram ci parla direttamente via rete Docker interna.
 
 ## Riassunti
 

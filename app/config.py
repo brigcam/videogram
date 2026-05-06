@@ -5,6 +5,9 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
+    telegram_api_base_url: str = ""
+    telegram_api_file_base_url: str = ""
+    telegram_local_mode: bool = False
     allowed_chat_ids: frozenset[int] = frozenset()
     allowed_user_ids: frozenset[int] = frozenset()
     openai_api_key: str = ""
@@ -46,6 +49,9 @@ def load_settings() -> Settings:
 
     return Settings(
         telegram_bot_token=token,
+        telegram_api_base_url=os.getenv("TELEGRAM_API_BASE_URL", "").strip(),
+        telegram_api_file_base_url=os.getenv("TELEGRAM_API_FILE_BASE_URL", "").strip(),
+        telegram_local_mode=parse_bool(os.getenv("TELEGRAM_LOCAL_MODE", "false")),
         allowed_chat_ids=parse_allowed_chat_ids(os.getenv("ALLOWED_CHAT_IDS", "")),
         allowed_user_ids=parse_allowed_user_ids(os.getenv("ALLOWED_USER_IDS", "")),
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
@@ -98,3 +104,7 @@ def parse_id_list(raw_value: str, env_name: str) -> frozenset[int]:
 def parse_string_list(raw_value: str) -> tuple[str, ...]:
     values = tuple(item.strip() for item in raw_value.split(",") if item.strip())
     return values or ("it", "en")
+
+
+def parse_bool(raw_value: str) -> bool:
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}

@@ -5,4 +5,5 @@ __pycache__/
 downloads/
 logs/
 cookies/
+telegram-bot-api-data/
 .pytest_cache/

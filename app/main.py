@@ -297,7 +297,14 @@ def main() -> None:
         settings.openai_summary_prompt,
         settings.openai_summary_max_transcript_chars,
     )
-    application = Application.builder().token(settings.telegram_bot_token).build()
+    application_builder = Application.builder().token(settings.telegram_bot_token)
+    if settings.telegram_api_base_url:
+        application_builder.base_url(settings.telegram_api_base_url)
+    if settings.telegram_api_file_base_url:
+        application_builder.base_file_url(settings.telegram_api_file_base_url)
+    if settings.telegram_local_mode:
+        application_builder.local_mode(True)
+    application = application_builder.build()
     application.bot_data["downloader"] = downloader
     application.bot_data["summarizer"] = summarizer
     application.bot_data["summary_transcript_langs"] = settings.summary_transcript_langs
@@ -311,6 +318,7 @@ def main() -> None:
     logger.info(
         "Videogram started download_dir=%s max_download_mb=%s max_telegram_upload_mb=%s "
         "min_free_disk_percent=%s "
+        "telegram_api_base_url_configured=%s telegram_local_mode=%s "
         "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s chat_whitelist_enabled=%s "
         "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
         "summary_model=%s summary_langs=%s",
@@ -318,6 +326,8 @@ def main() -> None:
         settings.max_download_mb,
         settings.max_telegram_upload_mb,
         settings.min_free_disk_percent,
+        bool(settings.telegram_api_base_url),
+        settings.telegram_local_mode,
         settings.log_file,
         settings.log_max_mb,
         settings.log_backup_count,
