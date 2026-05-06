@@ -37,7 +37,8 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | Variabile | Default | Descrizione |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | obbligatoria | Token del bot Telegram |
-| `ALLOWED_CHAT_IDS` | vuota | Lista di chat Telegram autorizzate, separate da virgola. Vuota = tutte le chat autorizzate |
+| `ALLOWED_CHAT_IDS` | vuota | Lista di gruppi/supergruppi Telegram autorizzati, separati da virgola. Vuota = tutte le chat di gruppo autorizzate |
+| `ALLOWED_USER_IDS` | vuota | Lista di utenti Telegram autorizzati a usare il bot in privato, separati da virgola. Vuota = tutti gli utenti autorizzati in privato |
 | `MAX_DOWNLOAD_MB` | `48` | Limite massimo del file scaricato |
 | `DOWNLOAD_DIR` | `/tmp/videogram-downloads` | Cartella temporanea nel container |
 | `MIN_FREE_DISK_PERCENT` | `5` | Spazio libero minimo da mantenere nella cache locale |
@@ -54,21 +55,27 @@ Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere
 
 Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
 
-## Whitelist chat
+## Whitelist chat e utenti
 
-Per limitare l'uso del bot a chat specifiche, imposta `ALLOWED_CHAT_IDS` nel `.env`:
+Per limitare l'uso del bot a gruppi specifici, imposta `ALLOWED_CHAT_IDS` nel `.env`:
 
 ```env
-ALLOWED_CHAT_IDS=111111111,-1001234567890
+ALLOWED_CHAT_IDS=-1001234567890,-1009876543210
 ```
 
-Gli ID delle chat di gruppo o supergruppo sono spesso negativi e iniziano con `-100`. Se non conosci un ID, lascia temporaneamente la whitelist vuota, manda un messaggio al bot dalla chat interessata e leggi `chat_id=...` nei log. Poi aggiorna `.env` e riavvia:
+In una chat autorizzata, Videogram risponde ai link postati da qualsiasi utente della chat. Se invece qualcuno scrive al bot in privato, viene controllata `ALLOWED_USER_IDS`:
+
+```env
+ALLOWED_USER_IDS=111111111,123456789
+```
+
+Gli ID delle chat di gruppo o supergruppo sono spesso negativi e iniziano con `-100`. Gli ID utente sono di solito positivi. Se non conosci un ID, lascia temporaneamente le whitelist vuote, manda un messaggio al bot dalla chat o dall'utente interessato e leggi `chat_id=...` e `user_id=...` nei log. Poi aggiorna `.env` e riavvia:
 
 ```bash
 docker compose up -d --build
 ```
 
-Quando la whitelist e' attiva, Videogram ignora le chat non autorizzate. Se viene aggiunto a un gruppo fuori lista, invia un breve avviso e prova a uscire automaticamente.
+Quando `ALLOWED_CHAT_IDS` e' attiva, Videogram ignora le chat di gruppo non autorizzate. Se viene aggiunto a un gruppo fuori lista, invia un breve avviso e prova a uscire automaticamente. Quando `ALLOWED_USER_IDS` e' attiva, Videogram risponde in privato solo agli utenti autorizzati.
 
 ## Cookies
 

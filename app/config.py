@@ -6,6 +6,7 @@ from dataclasses import dataclass
 class Settings:
     telegram_bot_token: str
     allowed_chat_ids: frozenset[int] = frozenset()
+    allowed_user_ids: frozenset[int] = frozenset()
     download_dir: str = "/tmp/videogram-downloads"
     max_download_mb: int = 48
     min_free_disk_percent: float = 5.0
@@ -33,6 +34,7 @@ def load_settings() -> Settings:
     return Settings(
         telegram_bot_token=token,
         allowed_chat_ids=parse_allowed_chat_ids(os.getenv("ALLOWED_CHAT_IDS", "")),
+        allowed_user_ids=parse_allowed_user_ids(os.getenv("ALLOWED_USER_IDS", "")),
         download_dir=os.getenv("DOWNLOAD_DIR", "/tmp/videogram-downloads"),
         max_download_mb=int(os.getenv("MAX_DOWNLOAD_MB", "48")),
         min_free_disk_percent=float(os.getenv("MIN_FREE_DISK_PERCENT", "5")),
@@ -46,17 +48,25 @@ def load_settings() -> Settings:
 
 
 def parse_allowed_chat_ids(raw_value: str) -> frozenset[int]:
+    return parse_id_list(raw_value, "ALLOWED_CHAT_IDS")
+
+
+def parse_allowed_user_ids(raw_value: str) -> frozenset[int]:
+    return parse_id_list(raw_value, "ALLOWED_USER_IDS")
+
+
+def parse_id_list(raw_value: str, env_name: str) -> frozenset[int]:
     raw_value = raw_value.strip()
     if not raw_value:
         return frozenset()
 
-    chat_ids = set()
+    ids = set()
     for item in raw_value.split(","):
         item = item.strip()
         if not item:
             continue
         try:
-            chat_ids.add(int(item))
+            ids.add(int(item))
         except ValueError as exc:
-            raise RuntimeError(f"Invalid ALLOWED_CHAT_IDS entry: {item!r}") from exc
-    return frozenset(chat_ids)
+            raise RuntimeError(f"Invalid {env_name} entry: {item!r}") from exc
+    return frozenset(ids)

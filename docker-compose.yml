@@ -6,6 +6,7 @@ services:
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Create .env from .env.example and set TELEGRAM_BOT_TOKEN}
       ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:-}
+      ALLOWED_USER_IDS: ${ALLOWED_USER_IDS:-}
       MAX_DOWNLOAD_MB: ${MAX_DOWNLOAD_MB:-48}
       DOWNLOAD_DIR: ${DOWNLOAD_DIR:-/tmp/videogram-downloads}
       MIN_FREE_DISK_PERCENT: ${MIN_FREE_DISK_PERCENT:-5}
