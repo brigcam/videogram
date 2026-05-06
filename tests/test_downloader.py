@@ -355,8 +355,10 @@ class DownloaderTests(unittest.TestCase):
         profiles = downloader._video_format_profiles(100)
 
         self.assertEqual(profiles[0][0], "video_1080p")
-        self.assertEqual(profiles[-1][0], "video_240p")
+        self.assertEqual(profiles[1][0], "video_1080p_unknown_size")
+        self.assertEqual(profiles[-1][0], "video_240p_unknown_size")
         self.assertIn("height<=240", profiles[-1][1])
+        self.assertNotIn("filesize", profiles[-1][1])
 
     def test_loads_cached_audio_post(self) -> None:
         url = "https://example.com/video"

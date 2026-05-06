@@ -519,20 +519,31 @@ class VideoDownloader:
         )
 
     def _video_format_profiles(self, max_bytes: int) -> tuple[tuple[str, str], ...]:
-        return tuple(
-            (
-                f"video_{height}p",
+        profiles = []
+        for height in (1080, 720, 480, 360, 240):
+            profiles.append(
                 (
-                    f"bv*[ext=mp4][height<={height}][filesize<={max_bytes}]+ba[ext=m4a]/"
-                    f"bv*[ext=mp4][height<={height}][filesize_approx<={max_bytes}]+ba[ext=m4a]/"
-                    f"b[ext=mp4][height<={height}][filesize<={max_bytes}]/"
-                    f"b[ext=mp4][height<={height}][filesize_approx<={max_bytes}]/"
-                    f"bv*[height<={height}][filesize<={max_bytes}]+ba/"
-                    f"b[height<={height}][filesize<={max_bytes}]"
-                ),
+                    f"video_{height}p",
+                    (
+                        f"bv*[ext=mp4][height<={height}][filesize<={max_bytes}]+ba[ext=m4a]/"
+                        f"bv*[ext=mp4][height<={height}][filesize_approx<={max_bytes}]+ba[ext=m4a]/"
+                        f"b[ext=mp4][height<={height}][filesize<={max_bytes}]/"
+                        f"b[ext=mp4][height<={height}][filesize_approx<={max_bytes}]/"
+                        f"bv*[height<={height}][filesize<={max_bytes}]+ba/"
+                        f"b[height<={height}][filesize<={max_bytes}]"
+                    ),
+                )
             )
-            for height in (1080, 720, 480, 360, 240)
-        )
+            profiles.append(
+                (
+                    f"video_{height}p_unknown_size",
+                    (
+                        f"b[height<={height}]/"
+                        f"bv*[height<={height}]+ba"
+                    ),
+                )
+            )
+        return tuple(profiles)
 
     def _should_try_smaller_format(self, error: Exception) -> bool:
         message = str(error).lower()
