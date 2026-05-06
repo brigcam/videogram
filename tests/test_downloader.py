@@ -384,6 +384,7 @@ class DownloaderTests(unittest.TestCase):
             (cache_dir / "transcript.json").write_text('{"transcript": {}}', encoding="utf-8")
             (cache_dir / "summary.json").write_text('{"summary": "cached"}', encoding="utf-8")
             (cache_dir / "summary.parameters.json").write_text('{"model": "test"}', encoding="utf-8")
+            (cache_dir / "thumbnail.jpg").write_bytes(b"thumbnail")
 
             part_dir = downloader.download_dir / "new.part"
             part_dir.mkdir()
@@ -399,6 +400,7 @@ class DownloaderTests(unittest.TestCase):
             self.assertTrue((cache_dir / "transcript.json").exists())
             self.assertTrue((cache_dir / "summary.json").exists())
             self.assertTrue((cache_dir / "summary.parameters.json").exists())
+            self.assertTrue((cache_dir / "thumbnail.jpg").exists())
             self.assertFalse(part_dir.exists())
 
     def test_youtube_timedtext_fallback_extracts_transcript(self) -> None:

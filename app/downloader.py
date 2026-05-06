@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -22,7 +23,7 @@ from yt_dlp import YoutubeDL
 logger = logging.getLogger(__name__)
 
 
-SIDECAR_CACHE_FILENAMES = frozenset(("transcript.json", "summary.json", "summary.parameters.json"))
+SIDECAR_CACHE_FILENAMES = frozenset(("transcript.json", "summary.json", "summary.parameters.json", "thumbnail.jpg"))
 TIKTOK_PAGE_USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
@@ -48,6 +49,7 @@ class DownloadedVideo:
     delete_after_send: bool = False
     telegram_file_id: str = ""
     cached_max_download_bytes: int = 0
+    thumbnail_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -286,7 +288,11 @@ class VideoDownloader:
                 f"(size_bytes={size_bytes} max_bytes={self.max_telegram_upload_bytes})."
             )
 
-        cached_path = self._install_cache_files(temp_dir, cache_dir, (path,))[0]
+        thumbnail_path = self._generate_video_thumbnail(path, temp_dir, request_id)
+        install_paths = (path,) + ((thumbnail_path,) if thumbnail_path else ())
+        installed_paths = self._install_cache_files(temp_dir, cache_dir, install_paths)
+        cached_path = installed_paths[0]
+        cached_thumbnail_path = installed_paths[1] if len(installed_paths) > 1 else None
         title = info.get("title") or "Video"
         description = info.get("description") or ""
         self._write_metadata(cache_dir, url, title, description, cached_path.name)
@@ -311,7 +317,59 @@ class VideoDownloader:
             cache_dir=cache_dir,
             description=description,
             delete_after_send=delete_after_send,
+            thumbnail_path=cached_thumbnail_path,
         )
+
+    def ensure_video_thumbnail(self, downloaded: DownloadedVideo, request_id: str) -> Path | None:
+        if downloaded.thumbnail_path and downloaded.thumbnail_path.exists():
+            return downloaded.thumbnail_path
+        if not downloaded.path.exists():
+            return None
+        thumbnail_path = self._generate_video_thumbnail(downloaded.path, downloaded.cache_dir, request_id)
+        return thumbnail_path if thumbnail_path and thumbnail_path.exists() else None
+
+    def _generate_video_thumbnail(self, video_path: Path, output_dir: Path, request_id: str) -> Path | None:
+        thumbnail_path = output_dir / "thumbnail.jpg"
+        command = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            "3",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale='min(320,iw)':-2",
+            "-q:v",
+            "5",
+            str(thumbnail_path),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning("request_id=%s thumbnail_generate_failed path=%s error=%s", request_id, video_path, exc)
+            return None
+        if result.returncode != 0 or not thumbnail_path.exists() or thumbnail_path.stat().st_size == 0:
+            logger.warning(
+                "request_id=%s thumbnail_generate_failed path=%s returncode=%s stderr=%s",
+                request_id,
+                video_path,
+                result.returncode,
+                (result.stderr or "").strip()[-500:],
+            )
+            thumbnail_path.unlink(missing_ok=True)
+            return None
+        if thumbnail_path.stat().st_size > 200 * 1024:
+            logger.warning(
+                "request_id=%s thumbnail_too_large path=%s size_bytes=%s",
+                request_id,
+                thumbnail_path,
+                thumbnail_path.stat().st_size,
+            )
+            thumbnail_path.unlink(missing_ok=True)
+            return None
+        return thumbnail_path
 
     def _download_audio_sync(self, url: str, request_id: str) -> DownloadedAudio:
         cache_dir = self.cache_dir_for_url(f"audio:{url}")
@@ -1467,6 +1525,7 @@ class VideoDownloader:
             cached=True,
             telegram_file_id=metadata.get("telegram_file_id") or "",
             cached_max_download_bytes=int(metadata.get("max_download_bytes") or 0),
+            thumbnail_path=cache_dir / "thumbnail.jpg" if (cache_dir / "thumbnail.jpg").exists() else None,
         )
 
     def _load_cached_post(self, cache_dir: Path, url: str) -> DownloadedPost | None:

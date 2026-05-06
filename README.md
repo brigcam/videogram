@@ -91,6 +91,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt`, `x.txt` e `tiktok.txt` |
 
 I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
+Per i video, Videogram salva anche una miniatura `thumbnail.jpg` nella cache e la passa a Telegram durante l'upload, cosi i client hanno un'anteprima anche quando il file non parte automaticamente.
 
 `MAX_CONCURRENT_JOBS` limita il numero di link processati in parallelo. Se arrivano piu link insieme, Videogram risponde subito e mette le richieste eccedenti in coda.
 

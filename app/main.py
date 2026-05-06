@@ -481,8 +481,27 @@ async def reply_video_with_cache(message, downloader: VideoDownloader, downloade
             logger.warning("request_id=%s upload_file_id_failed error=%s", request_id, exc)
             downloader.forget_telegram_file_id(downloaded)
 
-    logger.info("request_id=%s upload_file_start path=%s", request_id, downloaded.path)
+    thumbnail_path = downloader.ensure_video_thumbnail(downloaded, request_id)
+    logger.info(
+        "request_id=%s upload_file_start path=%s thumbnail=%s",
+        request_id,
+        downloaded.path,
+        bool(thumbnail_path),
+    )
     with downloaded.path.open("rb") as video:
+        if thumbnail_path:
+            with thumbnail_path.open("rb") as thumbnail:
+                return await message.reply_video(
+                    video=video,
+                    thumbnail=thumbnail,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    supports_streaming=True,
+                    read_timeout=120,
+                    write_timeout=120,
+                    connect_timeout=30,
+                    pool_timeout=30,
+                )
         return await message.reply_video(
             video=video,
             caption=caption,
