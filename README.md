@@ -22,6 +22,8 @@ Supporta:
 - `x.com/.../status/...`
 - `twitter.com/.../status/...`
 
+Nota: i link Threads vengono riconosciuti, ma il download dipende da `yt-dlp`, che al momento non fornisce ancora un estrattore funzionante per Threads. Videogram restituisce un errore esplicito invece di ignorare il link.
+
 ## Avvio rapido
 
 1. Crea un bot con BotFather e copia il token.

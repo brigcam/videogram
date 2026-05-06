@@ -46,6 +46,12 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
             "Esporta i cookies di X in ./cookies/x.txt e riprova.",
         )
 
+    if "unsupported url" in message and ("threads.com" in message or "threads.net" in message):
+        return UserErrorMessage(
+            "Threads non e ancora scaricabile.",
+            "Il link e stato riconosciuto, ma yt-dlp non ha ancora un estrattore funzionante per Threads.",
+        )
+
     if "read-only file system" in message and "cookies" in message:
         return UserErrorMessage(
             "Il file cookies non e scrivibile dal container.",

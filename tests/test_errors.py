@@ -52,6 +52,12 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("X/Twitter", message.title)
         self.assertIn("x.txt", message.detail)
 
+    def test_download_threads_unsupported_message(self) -> None:
+        message = classify_download_error(RuntimeError("ERROR: Unsupported URL: https://www.threads.com/@u/post/abc123/"))
+
+        self.assertIn("Threads", message.title)
+        self.assertIn("yt-dlp", message.detail)
+
     def test_message_includes_request_id(self) -> None:
         formatted = classify_download_error(RuntimeError("unknown")).format("abc123")
 
