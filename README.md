@@ -71,6 +71,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `HETZNER_SERVER_ID` | vuota | ID server Hetzner Cloud da monitorare |
 | `HETZNER_MONTHLY_TRAFFIC_TB` | `20` | Traffico mensile incluso da usare per calcolare la percentuale |
 | `OPENAI_ADMIN_KEY` | vuota | Admin key OpenAI per leggere i costi organizzazione da `/v1/organization/costs` |
+| `OPENAI_MONTHLY_BUDGET_USD` | `0` | Budget mensile OpenAI per calcolare percentuali e alert. `0` = mostra costi ma niente alert percentuali |
 | `OPENAI_API_KEY` | vuota | API key OpenAI per generare riassunti da trascrizioni o descrizioni. Vuota = riassunti disattivati |
 | `OPENAI_SUMMARY_MODEL` | `gpt-5.2` | Modello OpenAI usato per i riassunti |
 | `OPENAI_SUMMARY_PROMPT` | vedi `.env.example` | Prompt usato per trasformare il testo disponibile in riassunto |
@@ -93,7 +94,7 @@ I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati q
 
 `MAX_CONCURRENT_JOBS` limita il numero di link processati in parallelo. Se arrivano piu link insieme, Videogram risponde subito e mette le richieste eccedenti in coda.
 
-`/usage` funziona solo in chat privata e solo per gli ID elencati in `USAGE_ALLOWED_USER_IDS`. Se configuri `USAGE_REPORT_USER_ID`, Videogram controlla periodicamente il traffico Hetzner e manda un alert privato ogni volta che viene superato un nuovo multiplo di `USAGE_ALERT_STEP_PERCENT`.
+`/usage` funziona solo in chat privata e solo per gli ID elencati in `USAGE_ALLOWED_USER_IDS`. Se configuri `USAGE_REPORT_USER_ID`, Videogram controlla periodicamente traffico Hetzner e costi OpenAI. Manda un alert privato ogni volta che viene superato un nuovo multiplo di `USAGE_ALERT_STEP_PERCENT`; per OpenAI serve anche impostare `OPENAI_MONTHLY_BUDGET_USD`.
 
 Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un media in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram. Con il Bot API server locale puoi alzare questo valore, per esempio a `1900`.
 

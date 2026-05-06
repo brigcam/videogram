@@ -35,6 +35,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.usage_check_interval_minutes, 60)
         self.assertEqual(settings.usage_alert_step_percent, 10)
         self.assertEqual(settings.hetzner_monthly_traffic_tb, 20.0)
+        self.assertEqual(settings.openai_monthly_budget_usd, 0.0)
 
     def test_parse_optional_int(self) -> None:
         self.assertEqual(parse_optional_int(""), 0)

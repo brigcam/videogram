@@ -29,6 +29,8 @@ class OpenAIUsage:
     configured: bool
     cost_value: float = 0.0
     currency: str = "usd"
+    monthly_budget: float = 0.0
+    percent: float = 0.0
     error: str = ""
 
 
@@ -48,6 +50,7 @@ class UsageMonitor:
         hetzner_server_id: str = "",
         hetzner_monthly_traffic_tb: float = 20.0,
         openai_admin_key: str = "",
+        openai_monthly_budget_usd: float = 0.0,
         alert_step_percent: int = 10,
         alert_state_file: str = "/var/log/videogram/usage-alerts.json",
     ) -> None:
@@ -55,6 +58,7 @@ class UsageMonitor:
         self.hetzner_server_id = hetzner_server_id
         self.hetzner_monthly_traffic_tb = hetzner_monthly_traffic_tb
         self.openai_admin_key = openai_admin_key
+        self.openai_monthly_budget_usd = openai_monthly_budget_usd
         self.alert_step_percent = alert_step_percent
         self.alert_state_file = Path(alert_state_file)
 
@@ -103,7 +107,7 @@ class UsageMonitor:
 
     def _fetch_openai_usage(self, start: datetime, end: datetime) -> OpenAIUsage:
         if not self.openai_admin_key:
-            return OpenAIUsage(configured=False)
+            return OpenAIUsage(configured=False, monthly_budget=self.openai_monthly_budget_usd)
         try:
             query = urllib.parse.urlencode(
                 {
@@ -125,10 +129,17 @@ class UsageMonitor:
                     amount = result.get("amount") or {}
                     total += float(amount.get("value") or 0)
                     currency = amount.get("currency") or currency
-            return OpenAIUsage(configured=True, cost_value=total, currency=currency)
+            percent = total / self.openai_monthly_budget_usd * 100 if self.openai_monthly_budget_usd > 0 else 0.0
+            return OpenAIUsage(
+                configured=True,
+                cost_value=total,
+                currency=currency,
+                monthly_budget=self.openai_monthly_budget_usd,
+                percent=percent,
+            )
         except Exception as exc:
             logger.warning("openai_usage_fetch_failed error=%s", exc)
-            return OpenAIUsage(configured=True, error=str(exc))
+            return OpenAIUsage(configured=True, monthly_budget=self.openai_monthly_budget_usd, error=str(exc))
 
     def next_hetzner_alert_percent(self, percent: float) -> int:
         if percent <= 0:
@@ -144,6 +155,25 @@ class UsageMonitor:
         state = self._load_alert_state()
         state["hetzner_last_alert_percent"] = percent
         state["hetzner_last_alert_at"] = time.time()
+        self._write_alert_state(state)
+
+    def next_openai_alert_percent(self, percent: float) -> int:
+        if self.openai_monthly_budget_usd <= 0 or percent <= 0:
+            return 0
+        crossed = int(percent // self.alert_step_percent) * self.alert_step_percent
+        if crossed <= 0:
+            return 0
+        state = self._load_alert_state()
+        last_sent = int(state.get("openai_last_alert_percent") or 0)
+        return crossed if crossed > last_sent else 0
+
+    def mark_openai_alert_sent(self, percent: int) -> None:
+        state = self._load_alert_state()
+        state["openai_last_alert_percent"] = percent
+        state["openai_last_alert_at"] = time.time()
+        self._write_alert_state(state)
+
+    def _write_alert_state(self, state: dict) -> None:
         try:
             self.alert_state_file.parent.mkdir(parents=True, exist_ok=True)
             self.alert_state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -222,6 +252,12 @@ def format_openai_usage(usage: OpenAIUsage) -> str:
         return "OpenAI: monitor costi non configurato."
     if usage.error:
         return f"OpenAI: errore lettura costi ({usage.error})."
+    if usage.monthly_budget > 0:
+        return (
+            "OpenAI costi mese: "
+            f"{usage.cost_value:.4f} / {usage.monthly_budget:.2f} {usage.currency.upper()} "
+            f"({usage.percent:.1f}%)."
+        )
     return f"OpenAI costi mese: {usage.cost_value:.4f} {usage.currency.upper()}."
 
 
@@ -254,6 +290,16 @@ async def usage_alert_loop(application, interval_minutes: int, report_user_id: i
                     ),
                 )
                 monitor.mark_hetzner_alert_sent(alert_percent)
+            openai_alert_percent = monitor.next_openai_alert_percent(snapshot.openai.percent)
+            if openai_alert_percent:
+                await application.bot.send_message(
+                    chat_id=report_user_id,
+                    text=(
+                        f"Soglia budget OpenAI raggiunta: {openai_alert_percent}%.\n\n"
+                        f"{format_usage_report(snapshot)}"
+                    ),
+                )
+                monitor.mark_openai_alert_sent(openai_alert_percent)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

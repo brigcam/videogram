@@ -19,6 +19,7 @@ class Settings:
     hetzner_server_id: str = ""
     hetzner_monthly_traffic_tb: float = 20.0
     openai_admin_key: str = ""
+    openai_monthly_budget_usd: float = 0.0
     openai_api_key: str = ""
     openai_summary_model: str = "gpt-5.2"
     openai_summary_prompt: str = (
@@ -74,6 +75,7 @@ def load_settings() -> Settings:
         hetzner_server_id=os.getenv("HETZNER_SERVER_ID", "").strip(),
         hetzner_monthly_traffic_tb=float(os.getenv("HETZNER_MONTHLY_TRAFFIC_TB", "20")),
         openai_admin_key=os.getenv("OPENAI_ADMIN_KEY", "").strip(),
+        openai_monthly_budget_usd=float(os.getenv("OPENAI_MONTHLY_BUDGET_USD", "0")),
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         openai_summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.2").strip() or "gpt-5.2",
         openai_summary_prompt=os.getenv(

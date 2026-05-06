@@ -25,12 +25,25 @@ class UsageTests(unittest.TestCase):
 
     def test_alert_thresholds_are_sent_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            monitor = UsageMonitor(alert_step_percent=10, alert_state_file=str(Path(temp_dir) / "alerts.json"))
+            monitor = UsageMonitor(
+                alert_step_percent=10,
+                alert_state_file=str(Path(temp_dir) / "alerts.json"),
+                openai_monthly_budget_usd=20,
+            )
 
             self.assertEqual(monitor.next_hetzner_alert_percent(21.5), 20)
             monitor.mark_hetzner_alert_sent(20)
             self.assertEqual(monitor.next_hetzner_alert_percent(21.5), 0)
             self.assertEqual(monitor.next_hetzner_alert_percent(30.0), 30)
+            self.assertEqual(monitor.next_openai_alert_percent(19.9), 10)
+            monitor.mark_openai_alert_sent(10)
+            self.assertEqual(monitor.next_openai_alert_percent(19.9), 0)
+            self.assertEqual(monitor.next_openai_alert_percent(20.0), 20)
+
+    def test_openai_alerts_require_budget(self) -> None:
+        monitor = UsageMonitor(alert_step_percent=10, openai_monthly_budget_usd=0)
+
+        self.assertEqual(monitor.next_openai_alert_percent(50), 0)
 
     def test_formats_unconfigured_report(self) -> None:
         monitor = UsageMonitor()

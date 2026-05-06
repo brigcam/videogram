@@ -873,6 +873,7 @@ def main() -> None:
         hetzner_server_id=settings.hetzner_server_id,
         hetzner_monthly_traffic_tb=settings.hetzner_monthly_traffic_tb,
         openai_admin_key=settings.openai_admin_key,
+        openai_monthly_budget_usd=settings.openai_monthly_budget_usd,
         alert_step_percent=settings.usage_alert_step_percent,
         alert_state_file=settings.usage_alert_state_file,
     )
@@ -889,7 +890,8 @@ def main() -> None:
         "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s chat_whitelist_enabled=%s "
         "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
         "summary_model=%s summary_langs=%s max_concurrent_jobs=%s concurrent_updates=%s failed_links_file=%s "
-        "usage_allowed_user_count=%s usage_report_enabled=%s hetzner_usage_configured=%s openai_costs_configured=%s",
+        "usage_allowed_user_count=%s usage_report_enabled=%s hetzner_usage_configured=%s "
+        "openai_costs_configured=%s openai_budget_configured=%s",
         settings.download_dir,
         settings.max_download_mb,
         settings.max_telegram_upload_mb,
@@ -914,6 +916,7 @@ def main() -> None:
         bool(settings.usage_report_user_id),
         bool(settings.hetzner_api_token and settings.hetzner_server_id),
         bool(settings.openai_admin_key),
+        bool(settings.openai_monthly_budget_usd > 0),
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
