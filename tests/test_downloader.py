@@ -373,6 +373,66 @@ class DownloaderTests(unittest.TestCase):
         finally:
             downloader_module.YoutubeDL = original_youtube_dl
 
+    def test_subtitle_selection_prefers_manual_video_language_before_preferred_auto(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+        info = {
+            "language": "en",
+            "subtitles": {"en": [{"ext": "vtt", "url": "https://example.com/en.vtt"}]},
+            "automatic_captions": {"it": [{"ext": "vtt", "url": "https://example.com/it.vtt"}]},
+        }
+
+        selected = downloader._select_subtitle(info, ("it", "en"))
+
+        self.assertEqual(selected[0], "en")
+        self.assertEqual(selected[1], "manual")
+
+    def test_subtitle_selection_prefers_auto_video_language_before_preferred_manual(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+        info = {
+            "language": "en",
+            "subtitles": {"it": [{"ext": "vtt", "url": "https://example.com/it.vtt"}]},
+            "automatic_captions": {"en": [{"ext": "vtt", "url": "https://example.com/en.vtt"}]},
+        }
+
+        selected = downloader._select_subtitle(info, ("it", "en"))
+
+        self.assertEqual(selected[0], "en")
+        self.assertEqual(selected[1], "automatic")
+
+    def test_subtitle_selection_falls_back_to_preferred_manual_then_any_manual(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+        preferred_info = {
+            "subtitles": {"en": [{"ext": "vtt", "url": "https://example.com/en.vtt"}]},
+            "automatic_captions": {"it": [{"ext": "vtt", "url": "https://example.com/it.vtt"}]},
+        }
+        any_info = {
+            "subtitles": {"fr": [{"ext": "vtt", "url": "https://example.com/fr.vtt"}]},
+            "automatic_captions": {"it": [{"ext": "vtt", "url": "https://example.com/it.vtt"}]},
+        }
+
+        preferred = downloader._select_subtitle(preferred_info, ("en",))
+        any_caption = downloader._select_subtitle(any_info, ("de",))
+
+        self.assertEqual(preferred[0], "en")
+        self.assertEqual(preferred[1], "manual")
+        self.assertEqual(any_caption[0], "fr")
+        self.assertEqual(any_caption[1], "manual")
+
 
 if __name__ == "__main__":
     unittest.main()

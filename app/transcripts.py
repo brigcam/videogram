@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 
-TRANSCRIPT_CACHE_VERSION = 2
+TRANSCRIPT_CACHE_VERSION = 3
 
 
 @dataclass(frozen=True)

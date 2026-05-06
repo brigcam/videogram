@@ -804,17 +804,12 @@ class VideoDownloader:
             return None
 
         tracks, targets = self._parse_youtube_timedtext_list(raw_xml)
-        track = self._select_timedtext_track(tracks, preferred_langs)
-        target_language = ""
-        source = "youtube_timedtext"
-        if not track and tracks:
-            translated = self._select_timedtext_target(targets, preferred_langs)
-            if translated:
-                track = tracks[0]
-                target_language = translated.get("lang_code", "")
-                source = "youtube_timedtext_translated"
-            else:
-                track = tracks[0]
+        track, target_language, source = self._select_timedtext_candidate(
+            tracks,
+            targets,
+            self._video_language(info),
+            preferred_langs,
+        )
         if not track:
             return None
 
@@ -866,17 +861,59 @@ class VideoDownloader:
         targets = [dict(target.attrib) for target in root.findall(".//target") if target.attrib.get("lang_code")]
         return tracks, targets
 
-    def _select_timedtext_track(self, tracks: list[dict[str, str]], preferred_langs: tuple[str, ...]) -> dict[str, str] | None:
-        for language in self._matching_preferred_languages((track.get("lang_code", "") for track in tracks), preferred_langs):
-            for track in tracks:
-                if track.get("lang_code") == language:
-                    return track
-        if preferred_langs:
+    def _select_timedtext_candidate(
+        self,
+        tracks: list[dict[str, str]],
+        targets: list[dict[str, str]],
+        video_language: str,
+        preferred_langs: tuple[str, ...],
+    ) -> tuple[dict[str, str] | None, str, str]:
+        for automatic in (False, True):
+            track = self._select_timedtext_track_by_languages(tracks, (video_language,), automatic)
+            if track:
+                return track, "", "youtube_timedtext"
+
+        for automatic in (False, True):
+            track = self._select_timedtext_track_by_languages(tracks, preferred_langs, automatic)
+            if track:
+                return track, "", "youtube_timedtext"
+
+        translated = self._select_timedtext_target(targets, preferred_langs)
+        if translated:
+            source_track = self._first_timedtext_track(tracks, automatic=False) or self._first_timedtext_track(tracks, automatic=True)
+            if source_track:
+                return source_track, translated.get("lang_code", ""), "youtube_timedtext_translated"
+
+        return (
+            self._first_timedtext_track(tracks, automatic=False) or self._first_timedtext_track(tracks, automatic=True),
+            "",
+            "youtube_timedtext",
+        )
+
+    def _select_timedtext_track_by_languages(
+        self,
+        tracks: list[dict[str, str]],
+        languages: tuple[str, ...],
+        automatic: bool,
+    ) -> dict[str, str] | None:
+        if not languages:
             return None
-        for track in tracks:
+        available = (track.get("lang_code", "") for track in tracks if self._timedtext_track_is_automatic(track) == automatic)
+        for language in self._matching_preferred_languages(available, languages):
+            for track in tracks:
+                if track.get("lang_code") == language and self._timedtext_track_is_automatic(track) == automatic:
+                    return track
+        return None
+
+    def _first_timedtext_track(self, tracks: list[dict[str, str]], automatic: bool) -> dict[str, str] | None:
+        matching_tracks = [track for track in tracks if self._timedtext_track_is_automatic(track) == automatic]
+        for track in matching_tracks:
             if track.get("lang_default") == "true":
                 return track
-        return tracks[0] if tracks else None
+        return matching_tracks[0] if matching_tracks else None
+
+    def _timedtext_track_is_automatic(self, track: dict[str, str]) -> bool:
+        return track.get("kind", "").lower() == "asr"
 
     def _select_timedtext_target(self, targets: list[dict[str, str]], preferred_langs: tuple[str, ...]) -> dict[str, str] | None:
         for language in self._matching_preferred_languages((target.get("lang_code", "") for target in targets), preferred_langs):
@@ -937,12 +974,43 @@ class VideoDownloader:
     ) -> tuple[str, str, dict] | None:
         manual = info.get("subtitles") or {}
         automatic = info.get("automatic_captions") or {}
-        for source, subtitles in (("manual", manual), ("automatic", automatic)):
-            for language in self._rank_subtitle_languages(subtitles, preferred_langs):
-                subtitle_format = self._best_subtitle_format(subtitles.get(language) or [])
-                if subtitle_format:
-                    return language, source, subtitle_format
+        video_language = self._video_language(info)
+        for source, language in self._subtitle_language_candidates(manual, automatic, video_language, preferred_langs):
+            subtitles = manual if source == "manual" else automatic
+            subtitle_format = self._best_subtitle_format(subtitles.get(language) or [])
+            if subtitle_format:
+                return language, source, subtitle_format
         return None
+
+    def _subtitle_language_candidates(
+        self,
+        manual: dict,
+        automatic: dict,
+        video_language: str,
+        preferred_langs: tuple[str, ...],
+    ) -> list[tuple[str, str]]:
+        candidates: list[tuple[str, str]] = []
+
+        def add(source: str, languages: list[str]) -> None:
+            for language in languages:
+                candidate = (source, language)
+                if candidate not in candidates:
+                    candidates.append(candidate)
+
+        add("manual", self._matching_preferred_languages(manual.keys(), (video_language,)))
+        add("automatic", self._matching_preferred_languages(automatic.keys(), (video_language,)))
+        add("manual", self._matching_preferred_languages(manual.keys(), preferred_langs))
+        add("automatic", self._matching_preferred_languages(automatic.keys(), preferred_langs))
+        add("manual", list(manual.keys()))
+        add("automatic", list(automatic.keys()))
+        return candidates
+
+    def _video_language(self, info: dict) -> str:
+        for key in ("language", "original_language", "lang"):
+            value = info.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
 
     def _rank_subtitle_languages(self, subtitles: dict, preferred_langs: tuple[str, ...]) -> list[str]:
         languages = list(subtitles.keys())
