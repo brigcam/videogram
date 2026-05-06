@@ -77,7 +77,7 @@ def load_settings() -> Settings:
         openai_admin_key=os.getenv("OPENAI_ADMIN_KEY", "").strip(),
         openai_monthly_budget_usd=float(os.getenv("OPENAI_MONTHLY_BUDGET_USD", "0")),
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
-        openai_summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.2").strip() or "gpt-5.2",
+        openai_summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5-mini").strip() or "gpt-5-mini",
         openai_summary_prompt=os.getenv(
             "OPENAI_SUMMARY_PROMPT",
             Settings.openai_summary_prompt,

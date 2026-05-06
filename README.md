@@ -73,7 +73,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `OPENAI_ADMIN_KEY` | vuota | Admin key OpenAI per leggere i costi organizzazione da `/v1/organization/costs` |
 | `OPENAI_MONTHLY_BUDGET_USD` | `0` | Budget mensile OpenAI per calcolare percentuali e alert. `0` = mostra costi ma niente alert percentuali |
 | `OPENAI_API_KEY` | vuota | API key OpenAI per generare riassunti da trascrizioni o descrizioni. Vuota = riassunti disattivati |
-| `OPENAI_SUMMARY_MODEL` | `gpt-5.2` | Modello OpenAI usato per i riassunti |
+| `OPENAI_SUMMARY_MODEL` | `gpt-5-mini` | Modello OpenAI usato per i riassunti |
 | `OPENAI_SUMMARY_PROMPT` | vedi `.env.example` | Prompt usato per trasformare il testo disponibile in riassunto |
 | `OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS` | `20000` | Numero massimo di caratteri inviati a OpenAI |
 | `SUMMARY_TRANSCRIPT_LANGS` | `it,en` | Lingue preferite per sottotitoli/trascrizioni, separate da virgola |
@@ -141,8 +141,8 @@ Esempio:
 
 ```env
 OPENAI_API_KEY=sk-...
-OPENAI_SUMMARY_MODEL=gpt-5.2
-OPENAI_SUMMARY_PROMPT=Riassumi in italiano in 5 punti, con eventuali nomi e numeri importanti.
+OPENAI_SUMMARY_MODEL=gpt-5-mini
+OPENAI_SUMMARY_PROMPT=Riassumi in italiano in pochi punti concisi, con eventuali nomi e numeri importanti.
 SUMMARY_TRANSCRIPT_LANGS=it,en
 ```
 
