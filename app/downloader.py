@@ -50,6 +50,9 @@ class DownloadedVideo:
     telegram_file_id: str = ""
     cached_max_download_bytes: int = 0
     thumbnail_path: Path | None = None
+    width: int = 0
+    height: int = 0
+    duration: int = 0
 
 
 @dataclass(frozen=True)
@@ -298,7 +301,8 @@ class VideoDownloader:
         cached_thumbnail_path = installed_paths[1] if len(installed_paths) > 1 else None
         title = info.get("title") or "Video"
         description = info.get("description") or ""
-        self._write_metadata(cache_dir, url, title, description, cached_path.name)
+        width, height, duration = self._video_metadata(info, cached_path)
+        self._write_metadata(cache_dir, url, title, description, cached_path.name, width, height, duration)
         self._prune_cache(exclude=cache_dir)
         delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
         logger.info(
@@ -321,6 +325,69 @@ class VideoDownloader:
             description=description,
             delete_after_send=delete_after_send,
             thumbnail_path=cached_thumbnail_path,
+            width=width,
+            height=height,
+            duration=duration,
+        )
+
+    def _video_metadata(self, info: dict, video_path: Path) -> tuple[int, int, int]:
+        width = self._positive_int(info.get("width"))
+        height = self._positive_int(info.get("height"))
+        duration = self._positive_int(info.get("duration"))
+
+        if width and height and duration:
+            return width, height, duration
+
+        probed_width, probed_height, probed_duration = self._probe_video_metadata(video_path)
+        return (
+            width or probed_width,
+            height or probed_height,
+            duration or probed_duration,
+        )
+
+    @staticmethod
+    def _positive_int(value) -> int:
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            return 0
+        return parsed if parsed > 0 else 0
+
+    def _probe_video_metadata(self, video_path: Path) -> tuple[int, int, int]:
+        command = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height:format=duration",
+            "-of",
+            "json",
+            str(video_path),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=15, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning("video_metadata_probe_failed path=%s error=%s", video_path, exc)
+            return 0, 0, 0
+        if result.returncode != 0:
+            logger.warning(
+                "video_metadata_probe_failed path=%s returncode=%s stderr=%s",
+                video_path,
+                result.returncode,
+                (result.stderr or "").strip()[-500:],
+            )
+            return 0, 0, 0
+        try:
+            data = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            return 0, 0, 0
+        stream = (data.get("streams") or [{}])[0]
+        return (
+            self._positive_int(stream.get("width")),
+            self._positive_int(stream.get("height")),
+            self._positive_int((data.get("format") or {}).get("duration")),
         )
 
     def ensure_video_thumbnail(self, downloaded: DownloadedVideo, request_id: str) -> Path | None:
@@ -1625,6 +1692,14 @@ class VideoDownloader:
         if not video_path.exists() or not video_path.is_file():
             return None
 
+        width = int(metadata.get("width") or 0)
+        height = int(metadata.get("height") or 0)
+        duration = int(metadata.get("duration") or 0)
+        if not (width and height and duration):
+            width, height, duration = self._video_metadata(metadata, video_path)
+            if width or height or duration:
+                self._update_metadata(cache_dir, {"width": width, "height": height, "duration": duration})
+
         return DownloadedVideo(
             path=video_path,
             title=metadata.get("title") or "Video",
@@ -1635,6 +1710,9 @@ class VideoDownloader:
             telegram_file_id=metadata.get("telegram_file_id") or "",
             cached_max_download_bytes=int(metadata.get("max_download_bytes") or 0),
             thumbnail_path=cache_dir / "thumbnail.jpg" if (cache_dir / "thumbnail.jpg").exists() else None,
+            width=width,
+            height=height,
+            duration=duration,
         )
 
     def _load_cached_post(self, cache_dir: Path, url: str) -> DownloadedPost | None:
@@ -1719,7 +1797,17 @@ class VideoDownloader:
             telegram_file_id=metadata.get("telegram_audio_file_id") or "",
         )
 
-    def _write_metadata(self, cache_dir: Path, url: str, title: str, description: str, filename: str) -> None:
+    def _write_metadata(
+        self,
+        cache_dir: Path,
+        url: str,
+        title: str,
+        description: str,
+        filename: str,
+        width: int = 0,
+        height: int = 0,
+        duration: int = 0,
+    ) -> None:
         now = time.time()
         metadata = {
             "source_url": url,
@@ -1727,6 +1815,9 @@ class VideoDownloader:
             "description": description,
             "filename": filename,
             "max_download_bytes": self.max_download_bytes,
+            "width": width,
+            "height": height,
+            "duration": duration,
             "created_at": now,
             "last_accessed_at": now,
         }

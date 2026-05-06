@@ -677,6 +677,9 @@ async def reply_video_with_cache(message, downloader: VideoDownloader, downloade
                 caption=caption,
                 parse_mode=ParseMode.HTML,
                 supports_streaming=True,
+                width=downloaded.width or None,
+                height=downloaded.height or None,
+                duration=downloaded.duration or None,
                 read_timeout=120,
                 write_timeout=120,
                 connect_timeout=30,
@@ -688,10 +691,13 @@ async def reply_video_with_cache(message, downloader: VideoDownloader, downloade
 
     thumbnail_path = downloader.ensure_video_thumbnail(downloaded, request_id)
     logger.info(
-        "request_id=%s upload_file_start path=%s thumbnail=%s",
+        "request_id=%s upload_file_start path=%s thumbnail=%s width=%s height=%s duration=%s",
         request_id,
         downloaded.path,
         bool(thumbnail_path),
+        downloaded.width,
+        downloaded.height,
+        downloaded.duration,
     )
     with downloaded.path.open("rb") as video:
         if thumbnail_path:
@@ -702,6 +708,9 @@ async def reply_video_with_cache(message, downloader: VideoDownloader, downloade
                     caption=caption,
                     parse_mode=ParseMode.HTML,
                     supports_streaming=True,
+                    width=downloaded.width or None,
+                    height=downloaded.height or None,
+                    duration=downloaded.duration or None,
                     read_timeout=120,
                     write_timeout=120,
                     connect_timeout=30,
@@ -712,6 +721,9 @@ async def reply_video_with_cache(message, downloader: VideoDownloader, downloade
             caption=caption,
             parse_mode=ParseMode.HTML,
             supports_streaming=True,
+            width=downloaded.width or None,
+            height=downloaded.height or None,
+            duration=downloaded.duration or None,
             read_timeout=120,
             write_timeout=120,
             connect_timeout=30,

@@ -413,6 +413,53 @@ class DownloaderTests(unittest.TestCase):
             self.assertIsNotNone(audio)
             self.assertEqual(audio.telegram_file_id, "audio-file-id")
 
+    def test_video_metadata_prefers_info_values(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+
+        metadata = downloader._video_metadata({"width": 1920, "height": 1080, "duration": 42}, pathlib.Path("/nope"))
+
+        self.assertEqual(metadata, (1920, 1080, 42))
+
+    def test_loads_cached_video_dimensions(self) -> None:
+        url = "https://example.com/video"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = VideoDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+            )
+            cache_dir = downloader.cache_dir_for_url(url)
+            cache_dir.mkdir()
+            video_path = cache_dir / "video.mp4"
+            video_path.write_bytes(b"x")
+            (cache_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "source_url": url,
+                        "title": "Video",
+                        "description": "Desc",
+                        "filename": video_path.name,
+                        "width": 1280,
+                        "height": 720,
+                        "duration": 12,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            video = downloader._load_cached_video(cache_dir, url)
+
+            self.assertIsNotNone(video)
+            self.assertEqual(video.width, 1280)
+            self.assertEqual(video.height, 720)
+            self.assertEqual(video.duration, 12)
+
     def test_install_cache_files_preserves_summary_sidecars(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             downloader = VideoDownloader(
