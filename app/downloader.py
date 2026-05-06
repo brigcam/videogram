@@ -4,10 +4,12 @@ import json
 import logging
 import shutil
 import time
+import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.transcripts import Transcript, parse_subtitle_text
 from yt_dlp import YoutubeDL
 
 
@@ -46,6 +48,17 @@ class VideoDownloader:
     async def download(self, url: str, request_id: str) -> DownloadedVideo:
         return await asyncio.to_thread(self._download_sync, url, request_id)
 
+    async def extract_transcript(
+        self,
+        url: str,
+        request_id: str,
+        preferred_langs: tuple[str, ...],
+    ) -> Transcript | None:
+        return await asyncio.to_thread(self._extract_transcript_sync, url, request_id, preferred_langs)
+
+    def cache_dir_for_url(self, url: str) -> Path:
+        return self.download_dir / hashlib.sha256(url.encode("utf-8")).hexdigest()
+
     def remove(self, path: Path) -> None:
         parent = path.parent
         if parent.exists() and parent.parent == self.download_dir:
@@ -54,8 +67,8 @@ class VideoDownloader:
 
     def _download_sync(self, url: str, request_id: str) -> DownloadedVideo:
         started_at = time.perf_counter()
-        cache_key = hashlib.sha256(url.encode("utf-8")).hexdigest()
-        cache_dir = self.download_dir / cache_key
+        cache_dir = self.cache_dir_for_url(url)
+        cache_key = cache_dir.name
         cached = self._load_cached_video(cache_dir, url)
         if cached:
             self._touch_cache(cache_dir)
@@ -153,6 +166,106 @@ class VideoDownloader:
             source_url=url,
             delete_after_send=delete_after_send,
         )
+
+    def _extract_transcript_sync(
+        self,
+        url: str,
+        request_id: str,
+        preferred_langs: tuple[str, ...],
+    ) -> Transcript | None:
+        temp_dir = self.download_dir / f"{uuid.uuid4().hex}.transcript.part"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        options = {
+            "skip_download": True,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "js_runtimes": {"node": {}},
+        }
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        if runtime_cookies:
+            options["cookiefile"] = str(runtime_cookies)
+
+        try:
+            logger.info("request_id=%s transcript_extract_start url=%s", request_id, url)
+            with YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=False)
+            subtitle = self._select_subtitle(info, preferred_langs)
+            if not subtitle:
+                logger.info("request_id=%s transcript_not_found url=%s", request_id, url)
+                return None
+
+            language, source, subtitle_format = subtitle
+            raw_text = self._download_subtitle_text(subtitle_format["url"])
+            transcript_text = parse_subtitle_text(raw_text, subtitle_format.get("ext") or "")
+            if not transcript_text:
+                logger.info(
+                    "request_id=%s transcript_empty url=%s language=%s source=%s",
+                    request_id,
+                    url,
+                    language,
+                    source,
+                )
+                return None
+
+            logger.info(
+                "request_id=%s transcript_extract_complete url=%s language=%s source=%s chars=%s",
+                request_id,
+                url,
+                language,
+                source,
+                len(transcript_text),
+            )
+            return Transcript(text=transcript_text, language=language, source=source)
+        except Exception as exc:
+            logger.warning("request_id=%s transcript_extract_failed url=%s error=%s", request_id, url, exc)
+            return None
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _select_subtitle(
+        self,
+        info: dict,
+        preferred_langs: tuple[str, ...],
+    ) -> tuple[str, str, dict] | None:
+        manual = info.get("subtitles") or {}
+        automatic = info.get("automatic_captions") or {}
+        for source, subtitles in (("manual", manual), ("automatic", automatic)):
+            for language in self._rank_subtitle_languages(subtitles, preferred_langs):
+                subtitle_format = self._best_subtitle_format(subtitles.get(language) or [])
+                if subtitle_format:
+                    return language, source, subtitle_format
+        return None
+
+    def _rank_subtitle_languages(self, subtitles: dict, preferred_langs: tuple[str, ...]) -> list[str]:
+        languages = list(subtitles.keys())
+        ranked: list[str] = []
+        for preferred in preferred_langs:
+            preferred = preferred.lower()
+            for language in languages:
+                if language in ranked:
+                    continue
+                normalized = language.lower()
+                if normalized == preferred or normalized.startswith(f"{preferred}-"):
+                    ranked.append(language)
+        ranked.extend(language for language in languages if language not in ranked)
+        return ranked
+
+    def _best_subtitle_format(self, formats: list[dict]) -> dict | None:
+        preferred_exts = ("json3", "vtt", "srv3", "ttml")
+        for ext in preferred_exts:
+            for subtitle_format in formats:
+                if subtitle_format.get("ext") == ext and subtitle_format.get("url"):
+                    return subtitle_format
+        for subtitle_format in formats:
+            if subtitle_format.get("url"):
+                return subtitle_format
+        return None
+
+    def _download_subtitle_text(self, url: str) -> str:
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read().decode("utf-8", errors="replace")
 
     def _prepare_cookiefile(self, temp_dir: Path, request_id: str) -> Path | None:
         cookie_sources: list[Path] = []

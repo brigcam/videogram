@@ -51,6 +51,11 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `TELEGRAM_BOT_TOKEN` | obbligatoria | Token del bot Telegram |
 | `ALLOWED_CHAT_IDS` | vuota | Lista di gruppi/supergruppi Telegram autorizzati, separati da virgola. Vuota = tutte le chat di gruppo autorizzate |
 | `ALLOWED_USER_IDS` | vuota | Lista di utenti Telegram autorizzati a usare il bot in privato, separati da virgola. Vuota = tutti gli utenti autorizzati in privato |
+| `OPENAI_API_KEY` | vuota | API key OpenAI per generare riassunti dalle trascrizioni. Vuota = riassunti disattivati |
+| `OPENAI_SUMMARY_MODEL` | `gpt-5.2` | Modello OpenAI usato per i riassunti |
+| `OPENAI_SUMMARY_PROMPT` | vedi `.env.example` | Prompt usato per trasformare la trascrizione in riassunto |
+| `OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS` | `20000` | Numero massimo di caratteri di trascrizione inviati a OpenAI |
+| `SUMMARY_TRANSCRIPT_LANGS` | `it,en` | Lingue preferite per sottotitoli/trascrizioni, separate da virgola |
 | `MAX_DOWNLOAD_MB` | `48` | Limite massimo del file scaricato |
 | `DOWNLOAD_DIR` | `/tmp/videogram-downloads` | Cartella temporanea nel container |
 | `MIN_FREE_DISK_PERCENT` | `5` | Spazio libero minimo da mantenere nella cache locale |
@@ -66,6 +71,21 @@ I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati q
 Il limite `MAX_DOWNLOAD_MB` è conservativo perché i bot Telegram possono avere limiti di upload diversi a seconda della modalità/API usata. Puoi aumentarlo, ma se Telegram rifiuta l'upload conviene ridurlo o passare più avanti a un uploader basato su client MTProto.
 
 Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
+
+## Riassunti
+
+Se `OPENAI_API_KEY` e' configurata, Videogram prova a recuperare una trascrizione o sottotitolo tramite `yt-dlp` dopo aver inviato il video. Quando la trascrizione esiste, invia un secondo messaggio con un riassunto generato via OpenAI Responses API.
+
+I riassunti vengono salvati nella stessa cache locale del video. La cache viene riusata solo se URL normalizzato, modello, prompt e testo della trascrizione coincidono, cosi non spendi token quando lo stesso video viene richiesto di nuovo.
+
+Esempio:
+
+```env
+OPENAI_API_KEY=sk-...
+OPENAI_SUMMARY_MODEL=gpt-5.2
+OPENAI_SUMMARY_PROMPT=Riassumi in italiano in 5 punti, con eventuali nomi e numeri importanti.
+SUMMARY_TRANSCRIPT_LANGS=it,en
+```
 
 ## Whitelist chat e utenti
 

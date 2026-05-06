@@ -13,6 +13,7 @@ from app.downloader import DownloadError, VideoDownloader
 from app.errors import classify_download_error, classify_upload_error
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
+from app.summarizer import OpenAISummarizer, SummaryError
 
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 int((time.perf_counter() - upload_started_at) * 1000),
                 int((time.perf_counter() - request_started_at) * 1000),
             )
+            await maybe_send_summary(message, context, downloader, downloaded, link, request_id, status)
             await status.delete()
         except DownloadError as exc:
             logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
@@ -169,6 +171,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if downloaded and downloaded.delete_after_send:
                 downloader.remove(downloaded.path)
                 logger.info("request_id=%s removed_after_send path=%s", request_id, downloaded.path)
+
+
+async def maybe_send_summary(
+    message,
+    context: ContextTypes.DEFAULT_TYPE,
+    downloader: VideoDownloader,
+    downloaded,
+    link: str,
+    request_id: str,
+    status,
+) -> None:
+    summarizer: OpenAISummarizer | None = context.application.bot_data.get("summarizer")
+    if not summarizer or not summarizer.enabled:
+        return
+
+    transcript_langs: tuple[str, ...] = context.application.bot_data.get("summary_transcript_langs", ("it", "en"))
+    await status.edit_text("Cerco una trascrizione da riassumere...")
+    transcript = await downloader.extract_transcript(link, request_id, transcript_langs)
+    if not transcript:
+        logger.info("request_id=%s summary_skipped_no_transcript url=%s", request_id, link)
+        return
+
+    await status.edit_text("Riassumo la trascrizione...")
+    try:
+        summary = await summarizer.summarize(
+            downloaded.title,
+            downloaded.source_url,
+            transcript,
+            downloader.cache_dir_for_url(link),
+            request_id,
+        )
+    except SummaryError as exc:
+        logger.warning("request_id=%s summary_failed url=%s error=%s", request_id, link, exc)
+        await message.reply_text(f"Video inviato, ma il riassunto non e riuscito.\n\nID errore: {request_id}")
+        return
+
+    if not summary:
+        return
+
+    cache_label = " (cache)" if summary.cached else ""
+    text = f"Riassunto{cache_label}\n\n{summary.text}"
+    await message.reply_text(text[:4096])
 
 
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -216,8 +260,16 @@ def main() -> None:
         settings.ytdlp_cookies_file,
         settings.ytdlp_cookies_dir,
     )
+    summarizer = OpenAISummarizer(
+        settings.openai_api_key,
+        settings.openai_summary_model,
+        settings.openai_summary_prompt,
+        settings.openai_summary_max_transcript_chars,
+    )
     application = Application.builder().token(settings.telegram_bot_token).build()
     application.bot_data["downloader"] = downloader
+    application.bot_data["summarizer"] = summarizer
+    application.bot_data["summary_transcript_langs"] = settings.summary_transcript_langs
     application.bot_data["allowed_chat_ids"] = settings.allowed_chat_ids
     application.bot_data["allowed_user_ids"] = settings.allowed_user_ids
     application.add_handler(CommandHandler("start", start))
@@ -228,7 +280,8 @@ def main() -> None:
     logger.info(
         "Videogram started download_dir=%s max_download_mb=%s min_free_disk_percent=%s "
         "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s chat_whitelist_enabled=%s "
-        "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s",
+        "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
+        "summary_model=%s summary_langs=%s",
         settings.download_dir,
         settings.max_download_mb,
         settings.min_free_disk_percent,
@@ -240,6 +293,9 @@ def main() -> None:
         len(settings.allowed_chat_ids),
         bool(settings.allowed_user_ids),
         len(settings.allowed_user_ids),
+        summarizer.enabled,
+        settings.openai_summary_model,
+        ",".join(settings.summary_transcript_langs),
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
