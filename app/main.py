@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from telegram import InputMediaPhoto, Update
@@ -15,11 +17,21 @@ from app.downloader import DownloadedPost, DownloadError, TranscriptError, Video
 from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
-from app.summarizer import OpenAISummarizer, SummaryError
+from app.summarizer import OpenAISummarizer, SummaryError, SummaryResult
 from app.telegram_formatting import summary_markdown_to_telegram_html
+from app.transcripts import Transcript
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SummaryPipelineResult:
+    transcript_langs: tuple[str, ...]
+    transcript: Transcript | None = None
+    summary: SummaryResult | None = None
+    transcript_error: TranscriptError | None = None
+    summary_error: SummaryError | None = None
 
 
 def group_chat_is_allowed(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
@@ -118,6 +130,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         request_id = uuid.uuid4().hex[:12]
         request_started_at = time.perf_counter()
         status = await message.reply_text("Preparo il video...")
+        summary_task = start_summary_task(context, downloader, link, request_id)
         post = None
         try:
             logger.info(
@@ -139,21 +152,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 int((time.perf_counter() - upload_started_at) * 1000),
                 int((time.perf_counter() - request_started_at) * 1000),
             )
-            if post.video:
-                await maybe_send_summary(message, context, downloader, post.video, link, request_id, status)
+            await wait_for_summary_status(status, summary_task)
+            await publish_summary_task(message, downloader, link, request_id, summary_task)
             await status.delete()
         except DownloadError as exc:
             logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
             user_error = classify_download_error(exc)
             await status.edit_text(user_error.format(request_id))
+            await publish_summary_task(message, downloader, link, request_id, summary_task)
         except TelegramError as exc:
             logger.warning("request_id=%s process_upload_failed url=%s error=%s", request_id, link, exc)
             user_error = classify_upload_error(exc)
             await status.edit_text(user_error.format(request_id))
+            await publish_summary_task(message, downloader, link, request_id, summary_task)
         except Exception as exc:
             logger.exception("request_id=%s process_unexpected_failed url=%s", request_id, link)
             user_error = classify_upload_error(exc)
             await status.edit_text(user_error.format(request_id))
+            await publish_summary_task(message, downloader, link, request_id, summary_task)
         finally:
             if post and post.delete_after_send:
                 downloader.remove(post.cache_dir)
@@ -369,62 +385,126 @@ def save_telegram_video_file_id(downloader: VideoDownloader, downloaded, sent_me
 
 
 
-async def maybe_send_summary(
-    message,
+def start_summary_task(
     context: ContextTypes.DEFAULT_TYPE,
     downloader: VideoDownloader,
-    downloaded,
     link: str,
     request_id: str,
-    status,
-) -> None:
+) -> asyncio.Task[SummaryPipelineResult | None] | None:
     summarizer: OpenAISummarizer | None = context.application.bot_data.get("summarizer")
     if not summarizer or not summarizer.enabled:
-        return
+        return None
 
     transcript_langs: tuple[str, ...] = context.application.bot_data.get("summary_transcript_langs", ("it", "en"))
-    await status.edit_text("Cerco una trascrizione da riassumere...")
+    logger.info("request_id=%s summary_task_scheduled url=%s", request_id, link)
+    return asyncio.create_task(
+        prepare_summary(downloader, summarizer, link, request_id, transcript_langs),
+        name=f"summary-{request_id}",
+    )
+
+
+async def prepare_summary(
+    downloader: VideoDownloader,
+    summarizer: OpenAISummarizer,
+    link: str,
+    request_id: str,
+    transcript_langs: tuple[str, ...],
+) -> SummaryPipelineResult:
+    logger.info("request_id=%s summary_task_start url=%s", request_id, link)
     try:
         transcript = await downloader.extract_transcript(link, request_id, transcript_langs)
     except TranscriptError as exc:
         logger.warning("request_id=%s transcript_failed url=%s error=%s", request_id, link, exc)
-        user_error = classify_transcript_error(exc)
-        await message.reply_text(user_error.format(request_id))
-        return
+        return SummaryPipelineResult(transcript_langs=transcript_langs, transcript_error=exc)
     if not transcript:
         logger.info("request_id=%s summary_skipped_no_transcript url=%s", request_id, link)
-        return
+        return SummaryPipelineResult(transcript_langs=transcript_langs)
 
-    await status.edit_text("Riassumo la trascrizione...")
     try:
         summary = await summarizer.summarize(
-            downloaded.title,
-            downloaded.source_url,
+            "Video",
+            link,
             transcript,
             downloader.cache_dir_for_url(link),
             request_id,
         )
     except SummaryError as exc:
         logger.warning("request_id=%s summary_failed url=%s error=%s", request_id, link, exc)
-        await message.reply_text(f"Video inviato, ma il riassunto non e riuscito.\n\nID errore: {request_id}")
-        return
+        return SummaryPipelineResult(transcript_langs=transcript_langs, transcript=transcript, summary_error=exc)
 
-    if not summary:
-        return
-
-    await message.reply_text(
-        summary_markdown_to_telegram_html(summary.text)[:4096],
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await send_transcript_file(
-        message,
-        downloader,
-        downloader.cache_dir_for_url(link),
-        transcript_langs,
-        transcript.text,
+    logger.info(
+        "request_id=%s summary_task_complete url=%s transcript_chars=%s summary_cached=%s",
         request_id,
+        link,
+        len(transcript.text),
+        summary.cached if summary else None,
     )
+    return SummaryPipelineResult(transcript_langs=transcript_langs, transcript=transcript, summary=summary)
+
+
+async def wait_for_summary_status(status, summary_task: asyncio.Task[SummaryPipelineResult | None] | None) -> None:
+    if not summary_task or summary_task.done():
+        return
+    try:
+        await status.edit_text("Video inviato, attendo il riassunto...")
+    except TelegramError as exc:
+        logger.warning("summary_status_update_failed error=%s", exc)
+
+
+async def publish_summary_task(
+    message,
+    downloader: VideoDownloader,
+    link: str,
+    request_id: str,
+    summary_task: asyncio.Task[SummaryPipelineResult | None] | None,
+) -> None:
+    if not summary_task:
+        return
+
+    try:
+        result = await summary_task
+    except Exception as exc:
+        logger.exception("request_id=%s summary_task_unexpected_failed url=%s", request_id, link)
+        await message.reply_text(f"Riassunto non riuscito.\n\nID errore: {request_id}")
+        return
+
+    if not result:
+        return
+
+    if result.transcript_error:
+        user_error = classify_transcript_error(result.transcript_error)
+        try:
+            await message.reply_text(user_error.format(request_id))
+        except TelegramError as exc:
+            logger.warning("request_id=%s transcript_error_publish_failed url=%s error=%s", request_id, link, exc)
+        return
+
+    if result.summary_error:
+        try:
+            await message.reply_text(f"Trascrizione trovata, ma il riassunto non e riuscito.\n\nID errore: {request_id}")
+        except TelegramError as exc:
+            logger.warning("request_id=%s summary_error_publish_failed url=%s error=%s", request_id, link, exc)
+        return
+
+    if not result.summary or not result.transcript:
+        return
+
+    try:
+        await message.reply_text(
+            summary_markdown_to_telegram_html(result.summary.text)[:4096],
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+        await send_transcript_file(
+            message,
+            downloader,
+            downloader.cache_dir_for_url(link),
+            result.transcript_langs,
+            result.transcript.text,
+            request_id,
+        )
+    except TelegramError as exc:
+        logger.warning("request_id=%s summary_publish_failed url=%s error=%s", request_id, link, exc)
 
 
 async def send_transcript_file(

@@ -217,6 +217,38 @@ class DownloaderTests(unittest.TestCase):
             self.assertIsNotNone(audio)
             self.assertEqual(audio.telegram_file_id, "audio-file-id")
 
+    def test_install_cache_files_preserves_summary_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = VideoDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+            )
+            cache_dir = downloader.cache_dir_for_url("https://example.com/video")
+            cache_dir.mkdir()
+            (cache_dir / "old.mp4").write_bytes(b"old")
+            (cache_dir / "metadata.json").write_text("{}", encoding="utf-8")
+            (cache_dir / "transcript.json").write_text('{"transcript": {}}', encoding="utf-8")
+            (cache_dir / "summary.json").write_text('{"summary": "cached"}', encoding="utf-8")
+            (cache_dir / "summary.parameters.json").write_text('{"model": "test"}', encoding="utf-8")
+
+            part_dir = downloader.download_dir / "new.part"
+            part_dir.mkdir()
+            new_video = part_dir / "new.mp4"
+            new_video.write_bytes(b"new")
+
+            installed = downloader._install_cache_files(part_dir, cache_dir, (new_video,))
+
+            self.assertEqual(installed, (cache_dir / "new.mp4",))
+            self.assertTrue((cache_dir / "new.mp4").exists())
+            self.assertFalse((cache_dir / "old.mp4").exists())
+            self.assertFalse((cache_dir / "metadata.json").exists())
+            self.assertTrue((cache_dir / "transcript.json").exists())
+            self.assertTrue((cache_dir / "summary.json").exists())
+            self.assertTrue((cache_dir / "summary.parameters.json").exists())
+            self.assertFalse(part_dir.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

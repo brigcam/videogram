@@ -18,6 +18,9 @@ from yt_dlp import YoutubeDL
 logger = logging.getLogger(__name__)
 
 
+SIDECAR_CACHE_FILENAMES = frozenset(("transcript.json", "summary.json", "summary.parameters.json"))
+
+
 class DownloadError(RuntimeError):
     pass
 
@@ -275,10 +278,7 @@ class VideoDownloader:
                 f"(size_bytes={size_bytes} max_bytes={self.max_telegram_upload_bytes})."
             )
 
-        if cache_dir.exists():
-            shutil.rmtree(cache_dir, ignore_errors=True)
-        temp_dir.rename(cache_dir)
-        cached_path = cache_dir / path.name
+        cached_path = self._install_cache_files(temp_dir, cache_dir, (path,))[0]
         title = info.get("title") or "Video"
         description = info.get("description") or ""
         self._write_metadata(cache_dir, url, title, description, cached_path.name)
@@ -521,10 +521,8 @@ class VideoDownloader:
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise DownloadError("No downloadable media or text was found for this post.")
 
-        if cache_dir.exists():
-            shutil.rmtree(cache_dir, ignore_errors=True)
-        temp_dir.rename(cache_dir)
-        photos = tuple(DownloadedPhoto(cache_dir / path.name) for path in photo_paths)
+        installed_photo_paths = self._install_cache_files(temp_dir, cache_dir, tuple(photo_paths))
+        photos = tuple(DownloadedPhoto(path) for path in installed_photo_paths)
         self._write_post_metadata(cache_dir, url, title, description, text, photos)
         delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
         logger.info(
@@ -572,6 +570,26 @@ class VideoDownloader:
 
         walk(info)
         return urls
+
+    def _install_cache_files(self, temp_dir: Path, cache_dir: Path, paths: tuple[Path, ...]) -> tuple[Path, ...]:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        for child in list(cache_dir.iterdir()):
+            if child.name in SIDECAR_CACHE_FILENAMES:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+                continue
+            child.unlink(missing_ok=True)
+
+        installed_paths: list[Path] = []
+        for path in paths:
+            target = cache_dir / path.name
+            if target.exists():
+                target.unlink()
+            path.rename(target)
+            installed_paths.append(target)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return tuple(installed_paths)
 
     def _download_image(self, url: str, temp_dir: Path, index: int) -> Path:
         suffix = Path(urlparse(url).path).suffix.lower()
