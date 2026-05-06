@@ -88,7 +88,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
 | `FAILED_LINKS_FILE` | `/var/log/videogram/failed-links.jsonl` | Storico JSONL dei link falliti, utile per debug e miglioramento matcher |
 | `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per piattaforme che richiedono login/verifica |
-| `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt`, `x.txt` e `tiktok.txt` |
+| `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` selezionati per dominio da `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt`, `x.txt` e `tiktok.txt` |
 
 I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 Per i video, Videogram salva anche una miniatura `thumbnail.jpg` nella cache e la passa a Telegram durante l'upload, cosi i client hanno un'anteprima anche quando il file non parte automaticamente. Se la piattaforma espone gia una thumbnail, usa quella; altrimenti estrae un frame dal video.

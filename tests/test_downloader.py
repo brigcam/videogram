@@ -1,4 +1,5 @@
 import json
+import pathlib
 import tempfile
 import unittest
 import urllib.error
@@ -356,9 +357,29 @@ class DownloaderTests(unittest.TestCase):
 
         self.assertEqual(profiles[0][0], "video_1080p")
         self.assertEqual(profiles[1][0], "video_1080p_unknown_size")
-        self.assertEqual(profiles[-1][0], "video_240p_unknown_size")
-        self.assertIn("height<=240", profiles[-1][1])
-        self.assertNotIn("filesize", profiles[-1][1])
+        self.assertEqual(profiles[-2][0], "video_240p_unknown_size")
+        self.assertIn("height<=240", profiles[-2][1])
+        self.assertNotIn("filesize", profiles[-2][1])
+        self.assertEqual(profiles[-1][0], "video_best_unknown_size")
+
+    def test_selects_domain_specific_cookie_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cookies_dir = tempfile.TemporaryDirectory()
+            self.addCleanup(cookies_dir.cleanup)
+            cookies_path = pathlib.Path(cookies_dir.name)
+            (cookies_path / "instagram.txt").write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            (cookies_path / "youtube.txt").write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            downloader = VideoDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+                cookies_dir=cookies_dir.name,
+            )
+
+            sources = downloader._cookie_sources_for_url("https://www.instagram.com/reel/DTgaWBUDlyZ/")
+
+            self.assertEqual(sources, [cookies_path / "instagram.txt"])
 
     def test_loads_cached_audio_post(self) -> None:
         url = "https://example.com/video"

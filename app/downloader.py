@@ -234,7 +234,7 @@ class VideoDownloader:
             "quiet": True,
             "no_warnings": True,
         }
-        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id, url)
         if runtime_cookies:
             options["cookiefile"] = str(runtime_cookies)
 
@@ -460,7 +460,7 @@ class VideoDownloader:
             "quiet": True,
             "no_warnings": True,
         }
-        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id, url)
         if runtime_cookies:
             options["cookiefile"] = str(runtime_cookies)
 
@@ -543,6 +543,7 @@ class VideoDownloader:
                     ),
                 )
             )
+        profiles.append(("video_best_unknown_size", "bestvideo*+bestaudio/best"))
         return tuple(profiles)
 
     def _should_try_smaller_format(self, error: Exception) -> bool:
@@ -650,7 +651,7 @@ class VideoDownloader:
             "no_warnings": True,
             "js_runtimes": {"node": {}},
         }
-        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id, url)
         if runtime_cookies:
             options["cookiefile"] = str(runtime_cookies)
 
@@ -1100,7 +1101,7 @@ class VideoDownloader:
             "no_warnings": True,
             "js_runtimes": {"node": {}},
         }
-        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id, url)
         if runtime_cookies:
             options["cookiefile"] = str(runtime_cookies)
 
@@ -1526,13 +1527,13 @@ class VideoDownloader:
         except OSError:
             pass
 
-    def _prepare_cookiefile(self, temp_dir: Path, request_id: str) -> Path | None:
+    def _prepare_cookiefile(self, temp_dir: Path, request_id: str, url: str = "") -> Path | None:
         cookie_sources: list[Path] = []
         if self.cookies_file:
             cookie_sources.append(self.cookies_file)
         if self.cookies_dir:
             if self.cookies_dir.exists():
-                cookie_sources.extend(sorted(self.cookies_dir.glob("*.txt")))
+                cookie_sources.extend(self._cookie_sources_for_url(url))
             else:
                 logger.warning("request_id=%s ytdlp_cookies_dir_missing path=%s", request_id, self.cookies_dir)
 
@@ -1572,6 +1573,39 @@ class VideoDownloader:
             runtime_cookies,
         )
         return runtime_cookies
+
+    def _cookie_sources_for_url(self, url: str) -> list[Path]:
+        if not self.cookies_dir or not self.cookies_dir.exists():
+            return []
+
+        host = urllib.parse.urlparse(url).netloc.lower()
+        cookie_names = self._cookie_names_for_host(host)
+        if not cookie_names:
+            return sorted(self.cookies_dir.glob("*.txt"))
+
+        selected = [self.cookies_dir / name for name in cookie_names]
+        existing_selected = [source for source in selected if source.exists() and source.is_file()]
+        if existing_selected:
+            return existing_selected
+        return sorted(self.cookies_dir.glob("*.txt"))
+
+    @staticmethod
+    def _cookie_names_for_host(host: str) -> tuple[str, ...]:
+        if "youtube.com" in host or "youtu.be" in host:
+            return ("youtube.txt",)
+        if "instagram.com" in host:
+            return ("instagram.txt",)
+        if "facebook.com" in host or "fb.watch" in host:
+            return ("facebook.txt",)
+        if "threads." in host:
+            return ("threads.txt",)
+        if "reddit.com" in host:
+            return ("reddit.txt",)
+        if "tiktok.com" in host:
+            return ("tiktok.txt",)
+        if host == "x.com" or host.endswith(".x.com") or "twitter.com" in host:
+            return ("x.txt",)
+        return ()
 
     def _load_cached_video(self, cache_dir: Path, url: str) -> DownloadedVideo | None:
         metadata_path = cache_dir / "metadata.json"
