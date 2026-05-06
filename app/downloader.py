@@ -567,8 +567,9 @@ class VideoDownloader:
             page_html, final_url = self._download_tiktok_page(url)
             metadata = self._extract_tiktok_photo_metadata(page_html)
             image_urls = metadata["image_urls"]
-            title = metadata["title"] or "TikTok photo post"
-            description = metadata["description"]
+            title = str(metadata["title"] or "TikTok photo post")
+            description = str(metadata["description"] or "")
+            music = metadata["music"] if isinstance(metadata.get("music"), dict) else {}
             if not image_urls:
                 raise DownloadError("No downloadable photos were found for this TikTok post.")
 
@@ -591,21 +592,53 @@ class VideoDownloader:
                     raise DownloadError("The downloaded post media is larger than the configured limit.")
                 photo_paths.append(photo_path)
 
+            audio_path = None
+            audio_url = music.get("url") if isinstance(music.get("url"), str) else ""
+            if audio_url:
+                try:
+                    audio_path = self._download_tiktok_music(audio_url, temp_dir)
+                    total_bytes += audio_path.stat().st_size
+                    if total_bytes > self.max_download_bytes:
+                        raise DownloadError("The downloaded post media is larger than the configured limit.")
+                except DownloadError:
+                    raise
+                except Exception as exc:
+                    audio_path = None
+                    logger.warning(
+                        "request_id=%s tiktok_music_download_failed url=%s error=%s",
+                        request_id,
+                        audio_url,
+                        exc,
+                    )
+
             text = description or title
-            if not photo_paths and not text.strip():
+            if not photo_paths and not audio_path and not text.strip():
                 raise DownloadError("No downloadable media or text was found for this TikTok post.")
 
-            installed_photo_paths = self._install_cache_files(temp_dir, cache_dir, tuple(photo_paths))
+            install_paths = tuple(photo_paths + ([audio_path] if audio_path else []))
+            installed_paths = self._install_cache_files(temp_dir, cache_dir, install_paths)
+            installed_photo_paths = installed_paths[: len(photo_paths)]
             photos = tuple(DownloadedPhoto(path) for path in installed_photo_paths)
-            self._write_post_metadata(cache_dir, url, title, description, text, photos)
+            audio = None
+            if audio_path:
+                installed_audio_path = installed_paths[-1]
+                audio = DownloadedAudio(
+                    path=installed_audio_path,
+                    title=str(music.get("title") or "Audio TikTok"),
+                    source_url=url,
+                    cache_dir=cache_dir,
+                    description=str(music.get("author") or ""),
+                )
+            self._write_photo_post_metadata(cache_dir, url, title, description, text, photos, audio)
             delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
             logger.info(
-                "request_id=%s tiktok_photo_fallback_complete key=%s final_url=%s photo_count=%s text_chars=%s "
+                "request_id=%s tiktok_photo_fallback_complete key=%s final_url=%s photo_count=%s audio=%s text_chars=%s "
                 "free_disk_percent=%.2f delete_after_send=%s",
                 request_id,
                 cache_key[:12],
                 final_url,
                 len(photos),
+                bool(audio),
                 len(text),
                 self._free_disk_percent(),
                 delete_after_send,
@@ -615,6 +648,7 @@ class VideoDownloader:
                 source_url=url,
                 cache_dir=cache_dir,
                 description=description,
+                audio=audio,
                 photos=photos,
                 text=text,
                 delete_after_send=delete_after_send,
@@ -659,6 +693,16 @@ class VideoDownloader:
             "title": title,
             "description": description,
             "image_urls": image_urls,
+            "music": self._extract_tiktok_music_metadata(item),
+        }
+
+    def _extract_tiktok_music_metadata(self, item: dict) -> dict[str, object]:
+        music = item.get("music") if isinstance(item.get("music"), dict) else {}
+        return {
+            "url": music.get("playUrl") if isinstance(music.get("playUrl"), str) else "",
+            "title": music.get("title") if isinstance(music.get("title"), str) else "",
+            "author": music.get("authorName") if isinstance(music.get("authorName"), str) else "",
+            "duration": music.get("duration") if isinstance(music.get("duration"), int) else 0,
         }
 
     def _extract_tiktok_item_struct(self, page_html: str) -> dict | None:
@@ -789,6 +833,16 @@ class VideoDownloader:
         path = temp_dir / f"photo-{index:02d}{suffix}"
         request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
+            path.write_bytes(response.read())
+        return path
+
+    def _download_tiktok_music(self, url: str, temp_dir: Path) -> Path:
+        path = temp_dir / "music.mp3"
+        request = urllib.request.Request(url, headers={"User-Agent": TIKTOK_PAGE_USER_AGENT})
+        with urllib.request.urlopen(request, timeout=60) as response:
+            content_type = response.headers.get_content_type()
+            if content_type == "audio/mp4":
+                path = temp_dir / "music.m4a"
             path.write_bytes(response.read())
         return path
 
@@ -1393,11 +1447,27 @@ class VideoDownloader:
                 file_id = photo_file_ids[index] if index < len(photo_file_ids) else ""
                 photos.append(DownloadedPhoto(path=path, telegram_file_id=file_id))
 
+        audio = None
+        audio_filename = metadata.get("audio_filename")
+        if audio_filename:
+            audio_path = cache_dir / audio_filename
+            if audio_path.exists() and audio_path.is_file():
+                audio = DownloadedAudio(
+                    path=audio_path,
+                    title=metadata.get("audio_title") or "Audio",
+                    source_url=url,
+                    cache_dir=cache_dir,
+                    description=metadata.get("audio_description") or "",
+                    cached=True,
+                    telegram_file_id=metadata.get("telegram_audio_file_id") or "",
+                )
+
         return DownloadedPost(
             title=metadata.get("title") or "Post",
             source_url=url,
             cache_dir=cache_dir,
             description=metadata.get("description") or "",
+            audio=audio,
             photos=tuple(photos),
             text=metadata.get("text") or "",
             cached=True,
@@ -1474,6 +1544,28 @@ class VideoDownloader:
             "last_accessed_at": now,
         }
         (cache_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    def _write_photo_post_metadata(
+        self,
+        cache_dir: Path,
+        url: str,
+        title: str,
+        description: str,
+        text: str,
+        photos: tuple[DownloadedPhoto, ...],
+        audio: DownloadedAudio | None,
+    ) -> None:
+        self._write_post_metadata(cache_dir, url, title, description, text, photos)
+        if not audio:
+            return
+        self._update_metadata(
+            cache_dir,
+            {
+                "audio_filename": audio.path.name,
+                "audio_title": audio.title,
+                "audio_description": audio.description,
+            },
+        )
 
     def _touch_cache(self, cache_dir: Path) -> None:
         self._update_metadata(cache_dir, {"last_accessed_at": time.time()})

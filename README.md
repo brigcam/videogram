@@ -26,7 +26,7 @@ Supporta:
 - `vm.tiktok.com/...`
 - `vt.tiktok.com/...`
 
-Per alcuni social il supporto non-video e' best effort: se `yt-dlp` o un fallback dedicato espone immagini/gallery/audio/testo, Videogram li invia come foto, media group, audio o testo Telegram. Per i contenuti video troppo grandi, Videogram prova formati progressivamente piu piccoli prima di arrendersi; se nessun video rientra nel limite, prova anche audio-only. Se aumenti `MAX_DOWNLOAD_MB`, i media gia' in cache scaricati con un limite piu basso vengono rivalutati una volta per provare a ottenere una qualita' migliore; se non cambia nulla, la cache viene marcata come gia' verificata per il nuovo limite.
+Per alcuni social il supporto non-video e' best effort: se `yt-dlp` o un fallback dedicato espone immagini/gallery/audio/testo, Videogram li invia come foto, media group, audio o testo Telegram. Nei post TikTok photo mode, se disponibile, invia anche la musica di accompagnamento come audio separato. Per i contenuti video troppo grandi, Videogram prova formati progressivamente piu piccoli prima di arrendersi; se nessun video rientra nel limite, prova anche audio-only. Se aumenti `MAX_DOWNLOAD_MB`, i media gia' in cache scaricati con un limite piu basso vengono rivalutati una volta per provare a ottenere una qualita' migliore; se non cambia nulla, la cache viene marcata come gia' verificata per il nuovo limite.
 
 Nota: il supporto Threads usa un plugin `yt-dlp` esterno, installato da GitHub e bloccato a commit specifico in `requirements.txt`.
 

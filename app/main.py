@@ -204,6 +204,17 @@ async def send_downloaded_post(
         )
         sent_messages = await reply_photos_with_cache(message, downloader, post, caption, request_id)
         save_telegram_photo_file_ids(downloader, post, sent_messages, request_id)
+        if post.audio:
+            logger.info(
+                "request_id=%s upload_start type=photo_audio cached=%s path=%s size_bytes=%s",
+                request_id,
+                post.audio.cached,
+                post.audio.path,
+                post.audio.path.stat().st_size,
+            )
+            audio_caption = build_video_caption(post.source_url, post.audio.title, post.audio.description)
+            sent_audio = await reply_audio_with_cache(message, downloader, post.audio, audio_caption, request_id)
+            save_telegram_audio_file_id(downloader, post.audio, sent_audio, request_id)
         return
 
     if post.audio:

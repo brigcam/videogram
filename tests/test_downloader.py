@@ -152,6 +152,12 @@ class DownloaderTests(unittest.TestCase):
                         "itemStruct": {
                             "desc": "1980s Japan.. #tokyo",
                             "author": {"nickname": "Cosmo Bloom", "uniqueId": "cosmo_bloom"},
+                            "music": {
+                                "title": "Fantasy by Meiko Nakahara",
+                                "authorName": "DIN",
+                                "playUrl": "https://v16.example.com/music",
+                                "duration": 39,
+                            },
                             "imagePost": {
                                 "images": [
                                     {
@@ -185,6 +191,15 @@ class DownloaderTests(unittest.TestCase):
 
         self.assertEqual(metadata["title"], "1980s Japan.. #tokyo")
         self.assertEqual(metadata["description"], "1980s Japan.. #tokyo")
+        self.assertEqual(
+            metadata["music"],
+            {
+                "url": "https://v16.example.com/music",
+                "title": "Fantasy by Meiko Nakahara",
+                "author": "DIN",
+                "duration": 39,
+            },
+        )
         self.assertEqual(
             metadata["image_urls"],
             [
@@ -234,16 +249,23 @@ class DownloaderTests(unittest.TestCase):
                         "content_type": "photo",
                         "photo_filenames": [photo_path.name],
                         "telegram_photo_file_ids": ["photo-file-id"],
+                        "audio_filename": "music.mp3",
+                        "audio_title": "Song",
+                        "audio_description": "Artist",
+                        "telegram_audio_file_id": "audio-file-id",
                         "text": "Post text",
                     }
                 ),
                 encoding="utf-8",
             )
+            (cache_dir / "music.mp3").write_bytes(b"audio")
 
             post = downloader._load_cached_post(cache_dir, url)
 
             self.assertIsNotNone(post)
             self.assertEqual(post.photos[0].telegram_file_id, "photo-file-id")
+            self.assertEqual(post.audio.title, "Song")
+            self.assertEqual(post.audio.telegram_file_id, "audio-file-id")
             self.assertEqual(post.text, "Post text")
 
     def test_video_format_profiles_get_progressively_smaller(self) -> None:
