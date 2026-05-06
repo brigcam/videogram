@@ -48,8 +48,9 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
 
     if "unsupported url" in message and ("threads.com" in message or "threads.net" in message):
         return UserErrorMessage(
-            "Threads non e ancora scaricabile.",
-            "Il link e stato riconosciuto, ma yt-dlp non ha ancora un estrattore funzionante per Threads.",
+            "Threads non e stato scaricato.",
+            "Il link e stato riconosciuto, ma l'estrattore Threads non e riuscito a gestirlo. "
+            "Controlla che il plugin yt-dlp Threads sia installato e aggiornato.",
         )
 
     if "read-only file system" in message and "cookies" in message:

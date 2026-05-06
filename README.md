@@ -22,7 +22,7 @@ Supporta:
 - `x.com/.../status/...`
 - `twitter.com/.../status/...`
 
-Nota: i link Threads vengono riconosciuti, ma il download dipende da `yt-dlp`, che al momento non fornisce ancora un estrattore funzionante per Threads. Videogram restituisce un errore esplicito invece di ignorare il link.
+Nota: il supporto Threads usa un plugin `yt-dlp` esterno, installato da GitHub e bloccato a commit specifico in `requirements.txt`.
 
 ## Avvio rapido
 
