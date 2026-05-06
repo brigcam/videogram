@@ -10,6 +10,15 @@ class Settings:
     telegram_local_mode: bool = False
     allowed_chat_ids: frozenset[int] = frozenset()
     allowed_user_ids: frozenset[int] = frozenset()
+    usage_allowed_user_ids: frozenset[int] = frozenset()
+    usage_report_user_id: int = 0
+    usage_check_interval_minutes: int = 60
+    usage_alert_step_percent: int = 10
+    usage_alert_state_file: str = "/var/log/videogram/usage-alerts.json"
+    hetzner_api_token: str = ""
+    hetzner_server_id: str = ""
+    hetzner_monthly_traffic_tb: float = 20.0
+    openai_admin_key: str = ""
     openai_api_key: str = ""
     openai_summary_model: str = "gpt-5.2"
     openai_summary_prompt: str = (
@@ -56,6 +65,15 @@ def load_settings() -> Settings:
         telegram_local_mode=parse_bool(os.getenv("TELEGRAM_LOCAL_MODE", "false")),
         allowed_chat_ids=parse_allowed_chat_ids(os.getenv("ALLOWED_CHAT_IDS", "")),
         allowed_user_ids=parse_allowed_user_ids(os.getenv("ALLOWED_USER_IDS", "")),
+        usage_allowed_user_ids=parse_allowed_user_ids(os.getenv("USAGE_ALLOWED_USER_IDS", "")),
+        usage_report_user_id=parse_optional_int(os.getenv("USAGE_REPORT_USER_ID", "")),
+        usage_check_interval_minutes=max(1, int(os.getenv("USAGE_CHECK_INTERVAL_MINUTES", "60"))),
+        usage_alert_step_percent=min(100, max(1, int(os.getenv("USAGE_ALERT_STEP_PERCENT", "10")))),
+        usage_alert_state_file=os.getenv("USAGE_ALERT_STATE_FILE", "/var/log/videogram/usage-alerts.json"),
+        hetzner_api_token=os.getenv("HETZNER_API_TOKEN", "").strip(),
+        hetzner_server_id=os.getenv("HETZNER_SERVER_ID", "").strip(),
+        hetzner_monthly_traffic_tb=float(os.getenv("HETZNER_MONTHLY_TRAFFIC_TB", "20")),
+        openai_admin_key=os.getenv("OPENAI_ADMIN_KEY", "").strip(),
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         openai_summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.2").strip() or "gpt-5.2",
         openai_summary_prompt=os.getenv(
@@ -103,6 +121,13 @@ def parse_id_list(raw_value: str, env_name: str) -> frozenset[int]:
         except ValueError as exc:
             raise RuntimeError(f"Invalid {env_name} entry: {item!r}") from exc
     return frozenset(ids)
+
+
+def parse_optional_int(raw_value: str) -> int:
+    raw_value = raw_value.strip()
+    if not raw_value:
+        return 0
+    return int(raw_value)
 
 
 def parse_string_list(raw_value: str) -> tuple[str, ...]:

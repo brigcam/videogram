@@ -21,6 +21,7 @@ from app.logging_config import configure_logging
 from app.summarizer import OpenAISummarizer, SummaryError, SummaryResult
 from app.telegram_formatting import summary_markdown_to_telegram_html
 from app.transcripts import Transcript
+from app.usage import UsageMonitor, format_usage_report, usage_alert_loop
 
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,11 @@ def group_chat_is_allowed(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> b
 def private_user_is_allowed(context: ContextTypes.DEFAULT_TYPE, user_id: int | None) -> bool:
     allowed_user_ids: frozenset[int] = context.application.bot_data.get("allowed_user_ids", frozenset())
     return not allowed_user_ids or user_id in allowed_user_ids
+
+
+def usage_user_is_allowed(context: ContextTypes.DEFAULT_TYPE, user_id: int | None) -> bool:
+    allowed_user_ids: frozenset[int] = context.application.bot_data.get("usage_allowed_user_ids", frozenset())
+    return bool(user_id and user_id in allowed_user_ids)
 
 
 def access_is_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -105,6 +111,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             "Ciao, sono Videogram. Mandami un link supportato e lo ripubblico come contenuto nativo Telegram."
         )
+
+
+async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    user_id = update.effective_user.id if update.effective_user else None
+    if not message or not chat:
+        return
+    if chat.type != "private" or not usage_user_is_allowed(context, user_id):
+        logger.warning(
+            "usage_command_rejected chat_id=%s chat_type=%s user_id=%s",
+            chat.id,
+            chat.type,
+            user_id,
+        )
+        if chat.type == "private":
+            await message.reply_text("Non sei autorizzato a leggere le statistiche di utilizzo.")
+        return
+
+    monitor: UsageMonitor | None = context.application.bot_data.get("usage_monitor")
+    if not monitor:
+        await message.reply_text("Monitor utilizzo non configurato.")
+        return
+
+    status = await message.reply_text("Leggo le statistiche di utilizzo...")
+    snapshot = await monitor.snapshot()
+    await status.edit_text(format_usage_report(snapshot))
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -743,6 +776,27 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error("telegram_update_failed update=%s", update)
 
 
+async def post_init(application) -> None:
+    interval_minutes: int = application.bot_data.get("usage_check_interval_minutes", 60)
+    report_user_id: int = application.bot_data.get("usage_report_user_id", 0)
+    task = asyncio.create_task(
+        usage_alert_loop(application, interval_minutes, report_user_id),
+        name="usage-alert-loop",
+    )
+    application.bot_data["usage_alert_task"] = task
+
+
+async def post_shutdown(application) -> None:
+    task: asyncio.Task | None = application.bot_data.get("usage_alert_task")
+    if not task:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
 def main() -> None:
     settings = load_settings()
     configure_logging(settings)
@@ -762,6 +816,8 @@ def main() -> None:
         settings.openai_summary_max_transcript_chars,
     )
     application_builder = Application.builder().token(settings.telegram_bot_token)
+    application_builder.post_init(post_init)
+    application_builder.post_shutdown(post_shutdown)
     application_builder.concurrent_updates(settings.max_concurrent_jobs * 4)
     if settings.telegram_api_base_url:
         application_builder.base_url(settings.telegram_api_base_url)
@@ -775,9 +831,21 @@ def main() -> None:
     application.bot_data["summary_transcript_langs"] = settings.summary_transcript_langs
     application.bot_data["allowed_chat_ids"] = settings.allowed_chat_ids
     application.bot_data["allowed_user_ids"] = settings.allowed_user_ids
+    application.bot_data["usage_allowed_user_ids"] = settings.usage_allowed_user_ids
+    application.bot_data["usage_report_user_id"] = settings.usage_report_user_id
+    application.bot_data["usage_check_interval_minutes"] = settings.usage_check_interval_minutes
     application.bot_data["processing_queue"] = asyncio.Semaphore(settings.max_concurrent_jobs)
     application.bot_data["failure_recorder"] = FailureRecorder(Path(settings.failed_links_file))
+    application.bot_data["usage_monitor"] = UsageMonitor(
+        hetzner_api_token=settings.hetzner_api_token,
+        hetzner_server_id=settings.hetzner_server_id,
+        hetzner_monthly_traffic_tb=settings.hetzner_monthly_traffic_tb,
+        openai_admin_key=settings.openai_admin_key,
+        alert_step_percent=settings.usage_alert_step_percent,
+        alert_state_file=settings.usage_alert_state_file,
+    )
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("usage", usage_command))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(handle_error)
@@ -788,7 +856,8 @@ def main() -> None:
         "telegram_api_base_url_configured=%s telegram_local_mode=%s "
         "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s chat_whitelist_enabled=%s "
         "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
-        "summary_model=%s summary_langs=%s max_concurrent_jobs=%s concurrent_updates=%s failed_links_file=%s",
+        "summary_model=%s summary_langs=%s max_concurrent_jobs=%s concurrent_updates=%s failed_links_file=%s "
+        "usage_allowed_user_count=%s usage_report_enabled=%s hetzner_usage_configured=%s openai_costs_configured=%s",
         settings.download_dir,
         settings.max_download_mb,
         settings.max_telegram_upload_mb,
@@ -809,6 +878,10 @@ def main() -> None:
         settings.max_concurrent_jobs,
         settings.max_concurrent_jobs * 4,
         settings.failed_links_file,
+        len(settings.usage_allowed_user_ids),
+        bool(settings.usage_report_user_id),
+        bool(settings.hetzner_api_token and settings.hetzner_server_id),
+        bool(settings.openai_admin_key),
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

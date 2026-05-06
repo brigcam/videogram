@@ -1,6 +1,6 @@
 import unittest
 
-from app.config import Settings, parse_allowed_chat_ids, parse_allowed_user_ids, parse_bool
+from app.config import Settings, parse_allowed_chat_ids, parse_allowed_user_ids, parse_bool, parse_optional_int
 
 
 class ConfigTests(unittest.TestCase):
@@ -32,6 +32,13 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.max_concurrent_jobs, 2)
         self.assertEqual(settings.failed_links_file, "/var/log/videogram/failed-links.jsonl")
+        self.assertEqual(settings.usage_check_interval_minutes, 60)
+        self.assertEqual(settings.usage_alert_step_percent, 10)
+        self.assertEqual(settings.hetzner_monthly_traffic_tb, 20.0)
+
+    def test_parse_optional_int(self) -> None:
+        self.assertEqual(parse_optional_int(""), 0)
+        self.assertEqual(parse_optional_int(" 123 "), 123)
 
     def test_parse_bool(self) -> None:
         self.assertTrue(parse_bool("true"))

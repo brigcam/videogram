@@ -62,6 +62,15 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `TELEGRAM_LOCAL_MODE` | `false` | Abilita la modalita locale del client Telegram quando usi il Bot API server self-hosted |
 | `ALLOWED_CHAT_IDS` | vuota | Lista di gruppi/supergruppi Telegram autorizzati, separati da virgola. Vuota = tutte le chat di gruppo autorizzate |
 | `ALLOWED_USER_IDS` | vuota | Lista di utenti Telegram autorizzati a usare il bot in privato, separati da virgola. Vuota = tutti gli utenti autorizzati in privato |
+| `USAGE_ALLOWED_USER_IDS` | vuota | Lista separata di utenti autorizzati a usare `/usage` in privato. Vuota = nessun utente autorizzato |
+| `USAGE_REPORT_USER_ID` | vuota | User ID Telegram a cui inviare alert periodici di utilizzo in privato |
+| `USAGE_CHECK_INTERVAL_MINUTES` | `60` | Ogni quanti minuti controllare le soglie di utilizzo |
+| `USAGE_ALERT_STEP_PERCENT` | `10` | Soglia incrementale traffico Hetzner per alert: 10 = 10%, 20%, 30%... |
+| `USAGE_ALERT_STATE_FILE` | `/var/log/videogram/usage-alerts.json` | Stato locale delle soglie gia notificate |
+| `HETZNER_API_TOKEN` | vuota | Token Hetzner Cloud API per leggere le metriche traffico |
+| `HETZNER_SERVER_ID` | vuota | ID server Hetzner Cloud da monitorare |
+| `HETZNER_MONTHLY_TRAFFIC_TB` | `20` | Traffico mensile incluso da usare per calcolare la percentuale |
+| `OPENAI_ADMIN_KEY` | vuota | Admin key OpenAI per leggere i costi organizzazione da `/v1/organization/costs` |
 | `OPENAI_API_KEY` | vuota | API key OpenAI per generare riassunti da trascrizioni o descrizioni. Vuota = riassunti disattivati |
 | `OPENAI_SUMMARY_MODEL` | `gpt-5.2` | Modello OpenAI usato per i riassunti |
 | `OPENAI_SUMMARY_PROMPT` | vedi `.env.example` | Prompt usato per trasformare il testo disponibile in riassunto |
@@ -83,6 +92,8 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
 `MAX_CONCURRENT_JOBS` limita il numero di link processati in parallelo. Se arrivano piu link insieme, Videogram risponde subito e mette le richieste eccedenti in coda.
+
+`/usage` funziona solo in chat privata e solo per gli ID elencati in `USAGE_ALLOWED_USER_IDS`. Se configuri `USAGE_REPORT_USER_ID`, Videogram controlla periodicamente il traffico Hetzner e manda un alert privato ogni volta che viene superato un nuovo multiplo di `USAGE_ALERT_STEP_PERCENT`.
 
 Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un media in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram. Con il Bot API server locale puoi alzare questo valore, per esempio a `1900`.
 
