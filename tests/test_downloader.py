@@ -39,6 +39,31 @@ class DownloaderTests(unittest.TestCase):
 
         self.assertTrue(downloader._is_retryable_transcript_error(error))
 
+    def test_saves_and_loads_telegram_file_id(self) -> None:
+        url = "https://example.com/video"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = VideoDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+            )
+            cache_dir = downloader.cache_dir_for_url(url)
+            cache_dir.mkdir()
+            video_path = cache_dir / "video.mp4"
+            video_path.write_bytes(b"x")
+            (cache_dir / "metadata.json").write_text(
+                json.dumps({"source_url": url, "title": "Video", "filename": video_path.name}),
+                encoding="utf-8",
+            )
+
+            downloaded = downloader._load_cached_video(cache_dir, url)
+            self.assertIsNotNone(downloaded)
+            downloader.save_telegram_file_id(downloaded, "telegram-file-id")
+
+            reloaded = downloader._load_cached_video(cache_dir, url)
+            self.assertEqual(reloaded.telegram_file_id, "telegram-file-id")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -139,17 +139,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 downloaded.path,
                 downloaded.path.stat().st_size,
             )
-            with downloaded.path.open("rb") as video:
-                await message.reply_video(
-                    video=video,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    supports_streaming=True,
-                    read_timeout=120,
-                    write_timeout=120,
-                    connect_timeout=30,
-                    pool_timeout=30,
-                )
+            sent_message = await reply_video_with_cache(message, downloader, downloaded, caption, request_id)
+            save_telegram_video_file_id(downloader, downloaded, sent_message, request_id)
             logger.info(
                 "request_id=%s upload_complete upload_elapsed_ms=%s total_elapsed_ms=%s",
                 request_id,
@@ -174,6 +165,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if downloaded and downloaded.delete_after_send:
                 downloader.remove(downloaded.path)
                 logger.info("request_id=%s removed_after_send path=%s", request_id, downloaded.path)
+
+
+async def reply_video_with_cache(message, downloader: VideoDownloader, downloaded, caption: str, request_id: str):
+    if downloaded.telegram_file_id:
+        try:
+            logger.info(
+                "request_id=%s upload_file_id_start cached=%s file_id_present=True",
+                request_id,
+                downloaded.cached,
+            )
+            return await message.reply_video(
+                video=downloaded.telegram_file_id,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                supports_streaming=True,
+                read_timeout=120,
+                write_timeout=120,
+                connect_timeout=30,
+                pool_timeout=30,
+            )
+        except TelegramError as exc:
+            logger.warning("request_id=%s upload_file_id_failed error=%s", request_id, exc)
+            downloader.forget_telegram_file_id(downloaded)
+
+    logger.info("request_id=%s upload_file_start path=%s", request_id, downloaded.path)
+    with downloaded.path.open("rb") as video:
+        return await message.reply_video(
+            video=video,
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+            supports_streaming=True,
+            read_timeout=120,
+            write_timeout=120,
+            connect_timeout=30,
+            pool_timeout=30,
+        )
+
+
+def save_telegram_video_file_id(downloader: VideoDownloader, downloaded, sent_message, request_id: str) -> None:
+    if not sent_message or not sent_message.video:
+        return
+    file_id = sent_message.video.file_id
+    if not file_id:
+        return
+    downloader.save_telegram_file_id(downloaded, file_id)
+    logger.info("request_id=%s telegram_file_id_saved cache_dir=%s", request_id, downloaded.cache_dir)
 
 
 async def maybe_send_summary(

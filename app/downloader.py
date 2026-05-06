@@ -30,8 +30,10 @@ class DownloadedVideo:
     path: Path
     title: str
     source_url: str
+    cache_dir: Path
     cached: bool = False
     delete_after_send: bool = False
+    telegram_file_id: str = ""
 
 
 class VideoDownloader:
@@ -197,8 +199,17 @@ class VideoDownloader:
             path=cached_path,
             title=title,
             source_url=url,
+            cache_dir=cache_dir,
             delete_after_send=delete_after_send,
         )
+
+    def save_telegram_file_id(self, downloaded: DownloadedVideo, file_id: str) -> None:
+        if not file_id:
+            return
+        self._update_metadata(downloaded.cache_dir, {"telegram_file_id": file_id})
+
+    def forget_telegram_file_id(self, downloaded: DownloadedVideo) -> None:
+        self._update_metadata(downloaded.cache_dir, {"telegram_file_id": ""})
 
     def _extract_transcript_sync(
         self,
@@ -477,7 +488,9 @@ class VideoDownloader:
             path=video_path,
             title=metadata.get("title") or "Video",
             source_url=url,
+            cache_dir=cache_dir,
             cached=True,
+            telegram_file_id=metadata.get("telegram_file_id") or "",
         )
 
     def _write_metadata(self, cache_dir: Path, url: str, title: str, filename: str) -> None:
@@ -492,10 +505,13 @@ class VideoDownloader:
         (cache_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     def _touch_cache(self, cache_dir: Path) -> None:
+        self._update_metadata(cache_dir, {"last_accessed_at": time.time()})
+
+    def _update_metadata(self, cache_dir: Path, updates: dict) -> None:
         metadata_path = cache_dir / "metadata.json"
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            metadata["last_accessed_at"] = time.time()
+            metadata.update(updates)
             metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         except (OSError, json.JSONDecodeError):
             pass
