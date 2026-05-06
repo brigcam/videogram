@@ -425,12 +425,40 @@ class VideoDownloader:
         cached_post = self._load_cached_post(self.cache_dir_for_url(url), url)
         if cached_post:
             self._touch_cache(cached_post.cache_dir)
+            if self._cached_tiktok_photo_needs_music_refresh(cached_post):
+                logger.info(
+                    "request_id=%s post_cache_music_refresh_start key=%s url=%s",
+                    request_id,
+                    cached_post.cache_dir.name[:12],
+                    url,
+                )
+                try:
+                    refreshed_post = self._download_tiktok_photo_post_sync(
+                        url,
+                        request_id,
+                        preserve_photo_file_ids=[photo.telegram_file_id for photo in cached_post.photos],
+                    )
+                    logger.info(
+                        "request_id=%s post_cache_music_refresh_complete key=%s audio=%s",
+                        request_id,
+                        refreshed_post.cache_dir.name[:12],
+                        bool(refreshed_post.audio),
+                    )
+                    return refreshed_post
+                except DownloadError as exc:
+                    logger.warning(
+                        "request_id=%s post_cache_music_refresh_failed key=%s error=%s",
+                        request_id,
+                        cached_post.cache_dir.name[:12],
+                        exc,
+                    )
             logger.info(
-                "request_id=%s post_cache_hit key=%s type=%s photo_count=%s",
+                "request_id=%s post_cache_hit key=%s type=%s photo_count=%s audio=%s",
                 request_id,
                 cached_post.cache_dir.name[:12],
                 "photo" if cached_post.photos else "text",
                 len(cached_post.photos),
+                bool(cached_post.audio),
             )
             return cached_post
 
@@ -556,7 +584,24 @@ class VideoDownloader:
             delete_after_send=delete_after_send,
         )
 
-    def _download_tiktok_photo_post_sync(self, url: str, request_id: str) -> DownloadedPost:
+    def _cached_tiktok_photo_needs_music_refresh(self, post: DownloadedPost) -> bool:
+        if not post.photos or post.audio:
+            return False
+        if not self._is_tiktok_url(post.source_url):
+            return False
+        metadata = self._load_metadata(post.cache_dir)
+        return not bool(metadata.get("tiktok_music_checked"))
+
+    def _is_tiktok_url(self, url: str) -> bool:
+        host = urlparse(url).netloc.lower()
+        return host.endswith("tiktok.com")
+
+    def _download_tiktok_photo_post_sync(
+        self,
+        url: str,
+        request_id: str,
+        preserve_photo_file_ids: list[str] | None = None,
+    ) -> DownloadedPost:
         cache_dir = self.cache_dir_for_url(url)
         cache_key = cache_dir.name
         self._prune_cache()
@@ -630,6 +675,15 @@ class VideoDownloader:
                     description=str(music.get("author") or ""),
                 )
             self._write_photo_post_metadata(cache_dir, url, title, description, text, photos, audio)
+            if preserve_photo_file_ids:
+                self._update_metadata(cache_dir, {"telegram_photo_file_ids": preserve_photo_file_ids})
+                photos = tuple(
+                    DownloadedPhoto(
+                        path=photo.path,
+                        telegram_file_id=preserve_photo_file_ids[index] if index < len(preserve_photo_file_ids) else "",
+                    )
+                    for index, photo in enumerate(photos)
+                )
             delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
             logger.info(
                 "request_id=%s tiktok_photo_fallback_complete key=%s final_url=%s photo_count=%s audio=%s text_chars=%s "
@@ -1540,6 +1594,7 @@ class VideoDownloader:
             "content_type": "photo" if photos else "text",
             "photo_filenames": [photo.path.name for photo in photos],
             "text": text,
+            "tiktok_music_checked": True,
             "created_at": now,
             "last_accessed_at": now,
         }
@@ -1573,11 +1628,19 @@ class VideoDownloader:
     def _update_metadata(self, cache_dir: Path, updates: dict) -> None:
         metadata_path = cache_dir / "metadata.json"
         try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata = self._load_metadata(cache_dir)
             metadata.update(updates)
             metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-        except (OSError, json.JSONDecodeError):
+        except OSError:
             pass
+
+    def _load_metadata(self, cache_dir: Path) -> dict:
+        metadata_path = cache_dir / "metadata.json"
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return metadata if isinstance(metadata, dict) else {}
 
     def _prune_cache(self, exclude: Path | None = None) -> None:
         exclude = exclude.resolve() if exclude else None

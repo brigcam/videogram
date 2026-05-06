@@ -4,7 +4,7 @@ import unittest
 import urllib.error
 import urllib.parse
 
-from app.downloader import DownloadError, VideoDownloader
+from app.downloader import DownloadedAudio, DownloadedPhoto, DownloadedPost, DownloadError, VideoDownloader
 from app.transcripts import TRANSCRIPT_CACHE_VERSION, Transcript
 
 
@@ -267,6 +267,61 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(post.audio.title, "Song")
             self.assertEqual(post.audio.telegram_file_id, "audio-file-id")
             self.assertEqual(post.text, "Post text")
+
+    def test_refreshes_old_tiktok_photo_cache_without_music_once(self) -> None:
+        url = "https://vm.tiktok.com/ZMabcdef/"
+        test_case = self
+
+        class FakeDownloader(VideoDownloader):
+            refresh_count = 0
+
+            def _download_tiktok_photo_post_sync(
+                self,
+                url: str,
+                request_id: str,
+                preserve_photo_file_ids: list[str] | None = None,
+            ):
+                self.refresh_count += 1
+                test_case.assertEqual(preserve_photo_file_ids, ["photo-file-id"])
+                return DownloadedPost(
+                    title="Post",
+                    source_url=url,
+                    cache_dir=self.cache_dir_for_url(url),
+                    photos=(DownloadedPhoto(self.cache_dir_for_url(url) / "photo-01.jpg", "photo-file-id"),),
+                    audio=DownloadedAudio(self.cache_dir_for_url(url) / "music.mp3", "Song", url, self.cache_dir_for_url(url)),
+                    cached=True,
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = FakeDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+            )
+            cache_dir = downloader.cache_dir_for_url(url)
+            cache_dir.mkdir()
+            photo_path = cache_dir / "photo-01.jpg"
+            photo_path.write_bytes(b"x")
+            (cache_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "source_url": url,
+                        "title": "Post",
+                        "description": "Desc",
+                        "content_type": "photo",
+                        "photo_filenames": [photo_path.name],
+                        "telegram_photo_file_ids": ["photo-file-id"],
+                        "text": "Post text",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            post = downloader._download_post_sync(url, "test-request")
+
+            self.assertIsNotNone(post.audio)
+            self.assertEqual(downloader.refresh_count, 1)
 
     def test_video_format_profiles_get_progressively_smaller(self) -> None:
         downloader = VideoDownloader(

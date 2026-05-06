@@ -118,6 +118,14 @@ class YoutubeLinkTests(unittest.TestCase):
             "https://www.tiktok.com/@openai/video/1234567890123456789",
         )
 
+    def test_normalizes_tiktok_photo_urls(self) -> None:
+        self.assertEqual(
+            normalize_tiktok_url(
+                "https://www.tiktok.com/@cosmo_bloom/photo/7605584739654814998?_r=1&_t=ZN-968PJaRoklS&image_index=5"
+            ),
+            "https://www.tiktok.com/@cosmo_bloom/photo/7605584739654814998",
+        )
+
     def test_normalizes_tiktok_short_urls(self) -> None:
         self.assertEqual(
             normalize_tiktok_url("https://vm.tiktok.com/ZMabcdef/"),

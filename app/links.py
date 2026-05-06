@@ -236,11 +236,11 @@ def normalize_tiktok_url(url: str) -> str | None:
             return urlunparse(("https", host, f"/{short_id}/", "", "", ""))
         return None
 
-    if len(path_parts) >= 3 and path_parts[0].startswith("@") and path_parts[1] == "video":
+    if len(path_parts) >= 3 and path_parts[0].startswith("@") and path_parts[1] in {"video", "photo"}:
         username = path_parts[0][1:]
-        video_id = path_parts[2]
-        if re.fullmatch(r"[\w.]{1,30}", username) and re.fullmatch(r"\d{5,}", video_id):
-            return urlunparse(("https", "www.tiktok.com", f"/@{username}/video/{video_id}", "", "", ""))
+        post_id = path_parts[2]
+        if re.fullmatch(r"[\w.]{1,30}", username) and re.fullmatch(r"\d{5,}", post_id):
+            return urlunparse(("https", "www.tiktok.com", f"/@{username}/{path_parts[1]}/{post_id}", "", "", ""))
 
     if len(path_parts) >= 2 and path_parts[0] in {"t", "v"}:
         video_id = path_parts[1]
