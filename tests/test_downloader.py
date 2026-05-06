@@ -150,6 +150,52 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(post.photos[0].telegram_file_id, "photo-file-id")
             self.assertEqual(post.text, "Post text")
 
+    def test_video_format_profiles_get_progressively_smaller(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+
+        profiles = downloader._video_format_profiles(100)
+
+        self.assertEqual(profiles[0][0], "video_1080p")
+        self.assertEqual(profiles[-1][0], "video_240p")
+        self.assertIn("height<=240", profiles[-1][1])
+
+    def test_loads_cached_audio_post(self) -> None:
+        url = "https://example.com/video"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = VideoDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+            )
+            cache_dir = downloader.cache_dir_for_url(f"audio:{url}")
+            cache_dir.mkdir()
+            audio_path = cache_dir / "audio.m4a"
+            audio_path.write_bytes(b"x")
+            (cache_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "source_url": url,
+                        "title": "Audio",
+                        "description": "Desc",
+                        "content_type": "audio",
+                        "filename": audio_path.name,
+                        "telegram_audio_file_id": "audio-file-id",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            audio = downloader._load_cached_audio(cache_dir, url)
+
+            self.assertIsNotNone(audio)
+            self.assertEqual(audio.telegram_file_id, "audio-file-id")
+
 
 if __name__ == "__main__":
     unittest.main()

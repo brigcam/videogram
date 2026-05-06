@@ -45,12 +45,25 @@ class DownloadedPhoto:
 
 
 @dataclass(frozen=True)
+class DownloadedAudio:
+    path: Path
+    title: str
+    source_url: str
+    cache_dir: Path
+    description: str = ""
+    cached: bool = False
+    delete_after_send: bool = False
+    telegram_file_id: str = ""
+
+
+@dataclass(frozen=True)
 class DownloadedPost:
     title: str
     source_url: str
     cache_dir: Path
     description: str = ""
     video: DownloadedVideo | None = None
+    audio: DownloadedAudio | None = None
     photos: tuple[DownloadedPhoto, ...] = ()
     text: str = ""
     cached: bool = False
@@ -133,20 +146,40 @@ class VideoDownloader:
         logger.info("request_id=%s cache_miss key=%s url=%s", request_id, cache_key[:12], url)
         self._prune_cache()
 
+        format_max_bytes = min(self.max_download_bytes, self.max_telegram_upload_bytes)
+        last_error: Exception | None = None
+        for profile_name, format_selector in self._video_format_profiles(format_max_bytes):
+            try:
+                return self._download_video_attempt(url, request_id, cache_dir, profile_name, format_selector)
+            except DownloadError as exc:
+                last_error = exc
+                if not self._should_try_smaller_format(exc):
+                    raise
+                logger.warning(
+                    "request_id=%s download_try_smaller_format key=%s profile=%s error=%s",
+                    request_id,
+                    cache_key[:12],
+                    profile_name,
+                    exc,
+                )
+        if last_error:
+            raise last_error
+        raise DownloadError("No downloadable video format was found.")
+
+    def _download_video_attempt(
+        self,
+        url: str,
+        request_id: str,
+        cache_dir: Path,
+        profile_name: str,
+        format_selector: str,
+    ) -> DownloadedVideo:
+        started_at = time.perf_counter()
+        cache_key = cache_dir.name
         temp_dir = self.download_dir / f"{uuid.uuid4().hex}.part"
         temp_dir.mkdir(parents=True, exist_ok=True)
-        format_max_bytes = min(self.max_download_bytes, self.max_telegram_upload_bytes)
-
         options = {
-            "format": (
-                "bv*[ext=mp4][filesize<={0}]+ba[ext=m4a]/"
-                "bv*[ext=mp4][filesize_approx<={0}]+ba[ext=m4a]/"
-                "b[ext=mp4][filesize<={0}]/"
-                "b[ext=mp4][filesize_approx<={0}]/"
-                "bv*[ext=mp4]+ba[ext=m4a]/"
-                "b[ext=mp4]/"
-                "best"
-            ).format(format_max_bytes),
+            "format": format_selector,
             "outtmpl": str(temp_dir / "%(title).180B [%(id)s].%(ext)s"),
             "merge_output_format": "mp4",
             "max_filesize": self.max_download_bytes,
@@ -160,7 +193,7 @@ class VideoDownloader:
             options["cookiefile"] = str(runtime_cookies)
 
         try:
-            logger.info("request_id=%s download_start url=%s", request_id, url)
+            logger.info("request_id=%s download_start url=%s profile=%s", request_id, url, profile_name)
             with YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
@@ -239,6 +272,114 @@ class VideoDownloader:
             delete_after_send=delete_after_send,
         )
 
+    def _download_audio_sync(self, url: str, request_id: str) -> DownloadedAudio:
+        cache_dir = self.cache_dir_for_url(f"audio:{url}")
+        cached = self._load_cached_audio(cache_dir, url)
+        if cached:
+            self._touch_cache(cache_dir)
+            logger.info(
+                "request_id=%s audio_cache_hit key=%s path=%s size_bytes=%s",
+                request_id,
+                cache_dir.name[:12],
+                cached.path,
+                cached.path.stat().st_size,
+            )
+            return cached
+
+        temp_dir = self.download_dir / f"{uuid.uuid4().hex}.audio.part"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        options = {
+            "format": f"ba[ext=m4a][filesize<={self.max_download_bytes}]/ba[filesize<={self.max_download_bytes}]/bestaudio",
+            "outtmpl": str(temp_dir / "%(title).180B [%(id)s].%(ext)s"),
+            "max_filesize": self.max_download_bytes,
+            "js_runtimes": {"node": {}},
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+        }
+        runtime_cookies = self._prepare_cookiefile(temp_dir, request_id)
+        if runtime_cookies:
+            options["cookiefile"] = str(runtime_cookies)
+
+        try:
+            logger.info("request_id=%s audio_download_start url=%s", request_id, url)
+            with YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+        except Exception as exc:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.warning("request_id=%s audio_download_failed url=%s error=%s", request_id, url, exc)
+            raise DownloadError(str(exc)) from exc
+
+        path = Path(filename)
+        if not path.exists():
+            audio_files = sorted(
+                [item for item in temp_dir.iterdir() if item.is_file() and item.name != "cookies.txt"],
+                key=lambda item: item.stat().st_mtime,
+            )
+            if not audio_files:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                raise DownloadError("Audio download completed, but no audio file was produced.")
+            path = audio_files[-1]
+
+        size_bytes = path.stat().st_size
+        if size_bytes > self.max_download_bytes:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise DownloadError(
+                "The downloaded audio is larger than the configured limit "
+                f"(size_bytes={size_bytes} max_bytes={self.max_download_bytes})."
+            )
+
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        temp_dir.rename(cache_dir)
+        cached_path = cache_dir / path.name
+        title = info.get("title") or "Audio"
+        description = info.get("description") or ""
+        self._write_audio_metadata(cache_dir, url, title, description, cached_path.name)
+        delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
+        logger.info(
+            "request_id=%s audio_download_complete key=%s path=%s size_bytes=%s delete_after_send=%s",
+            request_id,
+            cache_dir.name[:12],
+            cached_path,
+            cached_path.stat().st_size,
+            delete_after_send,
+        )
+        return DownloadedAudio(
+            path=cached_path,
+            title=title,
+            source_url=url,
+            cache_dir=cache_dir,
+            description=description,
+            delete_after_send=delete_after_send,
+        )
+
+    def _video_format_profiles(self, max_bytes: int) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (
+                f"video_{height}p",
+                (
+                    f"bv*[ext=mp4][height<={height}][filesize<={max_bytes}]+ba[ext=m4a]/"
+                    f"bv*[ext=mp4][height<={height}][filesize_approx<={max_bytes}]+ba[ext=m4a]/"
+                    f"b[ext=mp4][height<={height}][filesize<={max_bytes}]/"
+                    f"b[ext=mp4][height<={height}][filesize_approx<={max_bytes}]/"
+                    f"bv*[height<={height}][filesize<={max_bytes}]+ba/"
+                    f"b[height<={height}][filesize<={max_bytes}]"
+                ),
+            )
+            for height in (1080, 720, 480, 360, 240)
+        )
+
+    def _should_try_smaller_format(self, error: Exception) -> bool:
+        message = str(error).lower()
+        return (
+            "larger than the configured limit" in message
+            or "larger than the telegram upload limit" in message
+            or "file is larger than max-filesize" in message
+            or "requested format is not available" in message
+        )
+
     def _download_post_sync(self, url: str, request_id: str) -> DownloadedPost:
         cached_post = self._load_cached_post(self.cache_dir_for_url(url), url)
         if cached_post:
@@ -264,10 +405,33 @@ class VideoDownloader:
                 delete_after_send=video.delete_after_send,
             )
         except DownloadError as video_error:
+            if self._should_try_audio_fallback(video_error):
+                try:
+                    audio = self._download_audio_sync(url, request_id)
+                    return DownloadedPost(
+                        title=audio.title,
+                        source_url=audio.source_url,
+                        cache_dir=audio.cache_dir,
+                        description=audio.description,
+                        audio=audio,
+                        cached=audio.cached,
+                        delete_after_send=audio.delete_after_send,
+                    )
+                except DownloadError as audio_error:
+                    logger.warning("request_id=%s audio_fallback_failed url=%s error=%s", request_id, url, audio_error)
             try:
                 return self._download_non_video_post_sync(url, request_id)
             except DownloadError:
                 raise video_error
+
+    def _should_try_audio_fallback(self, error: Exception) -> bool:
+        message = str(error).lower()
+        return (
+            "larger than the configured limit" in message
+            or "larger than the telegram upload limit" in message
+            or "file is larger than max-filesize" in message
+            or "requested format is not available" in message
+        )
 
     def _download_non_video_post_sync(self, url: str, request_id: str) -> DownloadedPost:
         cache_dir = self.cache_dir_for_url(url)
@@ -401,6 +565,14 @@ class VideoDownloader:
 
     def forget_post_photo_file_ids(self, post: DownloadedPost) -> None:
         self._update_metadata(post.cache_dir, {"telegram_photo_file_ids": []})
+
+    def save_audio_file_id(self, audio: DownloadedAudio, file_id: str) -> None:
+        if not file_id:
+            return
+        self._update_metadata(audio.cache_dir, {"telegram_audio_file_id": file_id})
+
+    def forget_audio_file_id(self, audio: DownloadedAudio) -> None:
+        self._update_metadata(audio.cache_dir, {"telegram_audio_file_id": ""})
 
     def cached_transcript_file_id(self, cache_dir: Path, preferred_langs: tuple[str, ...]) -> str:
         metadata = self._load_cached_transcript_metadata(cache_dir, preferred_langs)
@@ -729,8 +901,21 @@ class VideoDownloader:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        if metadata.get("source_url") != url or metadata.get("content_type") not in {"photo", "text"}:
+        if metadata.get("source_url") != url or metadata.get("content_type") not in {"audio", "photo", "text"}:
             return None
+
+        if metadata.get("content_type") == "audio":
+            audio = self._load_cached_audio(cache_dir, url)
+            if not audio:
+                return None
+            return DownloadedPost(
+                title=audio.title,
+                source_url=url,
+                cache_dir=cache_dir,
+                description=audio.description,
+                audio=audio,
+                cached=True,
+            )
 
         photo_file_ids = metadata.get("telegram_photo_file_ids") or []
         photos: list[DownloadedPhoto] = []
@@ -750,12 +935,49 @@ class VideoDownloader:
             cached=True,
         )
 
+    def _load_cached_audio(self, cache_dir: Path, url: str) -> DownloadedAudio | None:
+        metadata_path = cache_dir / "metadata.json"
+        if not metadata_path.exists():
+            return None
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        filename = metadata.get("filename")
+        if metadata.get("source_url") != url or metadata.get("content_type") != "audio" or not filename:
+            return None
+        audio_path = cache_dir / filename
+        if not audio_path.exists() or not audio_path.is_file():
+            return None
+        return DownloadedAudio(
+            path=audio_path,
+            title=metadata.get("title") or "Audio",
+            source_url=url,
+            cache_dir=cache_dir,
+            description=metadata.get("description") or "",
+            cached=True,
+            telegram_file_id=metadata.get("telegram_audio_file_id") or "",
+        )
+
     def _write_metadata(self, cache_dir: Path, url: str, title: str, description: str, filename: str) -> None:
         now = time.time()
         metadata = {
             "source_url": url,
             "title": title,
             "description": description,
+            "filename": filename,
+            "created_at": now,
+            "last_accessed_at": now,
+        }
+        (cache_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    def _write_audio_metadata(self, cache_dir: Path, url: str, title: str, description: str, filename: str) -> None:
+        now = time.time()
+        metadata = {
+            "source_url": url,
+            "title": title,
+            "description": description,
+            "content_type": "audio",
             "filename": filename,
             "created_at": now,
             "last_accessed_at": now,

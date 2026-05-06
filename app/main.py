@@ -190,6 +190,18 @@ async def send_downloaded_post(
         save_telegram_photo_file_ids(downloader, post, sent_messages, request_id)
         return
 
+    if post.audio:
+        logger.info(
+            "request_id=%s upload_start type=audio cached=%s path=%s size_bytes=%s",
+            request_id,
+            post.audio.cached,
+            post.audio.path,
+            post.audio.path.stat().st_size,
+        )
+        sent_message = await reply_audio_with_cache(message, downloader, post.audio, caption, request_id)
+        save_telegram_audio_file_id(downloader, post.audio, sent_message, request_id)
+        return
+
     text = build_video_caption(post.source_url, post.title, post.text or post.description)
     logger.info("request_id=%s upload_start type=text chars=%s cached=%s", request_id, len(text), post.cached)
     await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
@@ -267,6 +279,46 @@ def save_telegram_photo_file_ids(
         post.cache_dir,
         len(file_ids),
     )
+
+
+async def reply_audio_with_cache(message, downloader: VideoDownloader, audio, caption: str, request_id: str):
+    if audio.telegram_file_id:
+        try:
+            logger.info("request_id=%s upload_audio_file_id_start cached=%s", request_id, audio.cached)
+            return await message.reply_audio(
+                audio=audio.telegram_file_id,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                read_timeout=120,
+                write_timeout=120,
+                connect_timeout=30,
+                pool_timeout=30,
+            )
+        except TelegramError as exc:
+            logger.warning("request_id=%s upload_audio_file_id_failed error=%s", request_id, exc)
+            downloader.forget_audio_file_id(audio)
+
+    logger.info("request_id=%s upload_audio_file_start path=%s", request_id, audio.path)
+    with audio.path.open("rb") as audio_file:
+        return await message.reply_audio(
+            audio=audio_file,
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+            read_timeout=120,
+            write_timeout=120,
+            connect_timeout=30,
+            pool_timeout=30,
+        )
+
+
+def save_telegram_audio_file_id(downloader: VideoDownloader, audio, sent_message, request_id: str) -> None:
+    if not sent_message or not sent_message.audio:
+        return
+    file_id = sent_message.audio.file_id
+    if not file_id:
+        return
+    downloader.save_audio_file_id(audio, file_id)
+    logger.info("request_id=%s telegram_audio_file_id_saved cache_dir=%s", request_id, audio.cache_dir)
 
 
 async def reply_video_with_cache(message, downloader: VideoDownloader, downloaded, caption: str, request_id: str):
