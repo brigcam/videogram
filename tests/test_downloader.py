@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import urllib.error
 
 from app.downloader import DownloadError, VideoDownloader
 
@@ -26,6 +27,17 @@ class DownloaderTests(unittest.TestCase):
 
             with self.assertRaisesRegex(DownloadError, "Telegram upload limit"):
                 downloader._download_sync(url, "test-request")
+
+    def test_transcript_rate_limit_is_retryable(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+        error = urllib.error.HTTPError("https://example.com", 429, "Too Many Requests", {}, None)
+
+        self.assertTrue(downloader._is_retryable_transcript_error(error))
 
 
 if __name__ == "__main__":

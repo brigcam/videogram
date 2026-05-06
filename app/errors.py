@@ -139,3 +139,25 @@ def classify_upload_error(error: Exception) -> UserErrorMessage:
         "Qualcosa e andato storto durante l'invio del video.",
         "Il download potrebbe essere riuscito, ma Telegram ha restituito un errore. Controlla i log con l'ID qui sotto.",
     )
+
+
+def classify_transcript_error(error: Exception) -> UserErrorMessage:
+    message = str(error).lower()
+
+    if "http error 429" in message or "too many requests" in message:
+        return UserErrorMessage(
+            "Video inviato, ma YouTube ha limitato la trascrizione.",
+            "Ho riprovato piu volte a recuperare sottotitoli/trascrizione, ma YouTube ha risposto Too Many Requests. "
+            "Riprova piu tardi: il video e' gia in cache, quindi non dovro' riscaricarlo.",
+        )
+
+    if "timed out" in message or "timeout" in message:
+        return UserErrorMessage(
+            "Video inviato, ma la trascrizione e andata in timeout.",
+            "Il video e' stato caricato correttamente, pero' il recupero dei sottotitoli ha impiegato troppo tempo.",
+        )
+
+    return UserErrorMessage(
+        "Video inviato, ma non ho recuperato la trascrizione.",
+        "Il riassunto non e partito per un errore durante il recupero dei sottotitoli. Controlla i log con l'ID qui sotto.",
+    )

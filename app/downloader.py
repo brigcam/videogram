@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import time
+import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
@@ -17,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 class DownloadError(RuntimeError):
+    pass
+
+
+class TranscriptError(RuntimeError):
     pass
 
 
@@ -229,43 +234,103 @@ class VideoDownloader:
             options["cookiefile"] = str(runtime_cookies)
 
         try:
-            logger.info("request_id=%s transcript_extract_start url=%s", request_id, url)
-            with YoutubeDL(options) as ydl:
-                info = ydl.extract_info(url, download=False)
-            subtitle = self._select_subtitle(info, preferred_langs)
-            if not subtitle:
-                logger.info("request_id=%s transcript_not_found url=%s", request_id, url)
-                return None
+            return self._extract_transcript_with_retries(cache_dir, url, request_id, preferred_langs, options)
+        except Exception as exc:
+            logger.warning("request_id=%s transcript_extract_failed url=%s error=%s", request_id, url, exc)
+            raise TranscriptError(str(exc)) from exc
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-            language, source, subtitle_format = subtitle
-            raw_text = self._download_subtitle_text(subtitle_format["url"])
-            transcript_text = parse_subtitle_text(raw_text, subtitle_format.get("ext") or "")
-            if not transcript_text:
+    def _extract_transcript_with_retries(
+        self,
+        cache_dir: Path,
+        url: str,
+        request_id: str,
+        preferred_langs: tuple[str, ...],
+        options: dict,
+    ) -> Transcript | None:
+        max_attempts = 3
+        retry_delays = (3, 8)
+        for attempt in range(1, max_attempts + 1):
+            try:
                 logger.info(
-                    "request_id=%s transcript_empty url=%s language=%s source=%s",
+                    "request_id=%s transcript_extract_start url=%s attempt=%s max_attempts=%s",
                     request_id,
                     url,
-                    language,
-                    source,
+                    attempt,
+                    max_attempts,
                 )
-                return None
+                transcript = self._extract_transcript_once(url, request_id, preferred_langs, options)
+                if transcript:
+                    self._write_cached_transcript(cache_dir, transcript, preferred_langs)
+                return transcript
+            except Exception as exc:
+                if not self._is_retryable_transcript_error(exc):
+                    raise
+                if attempt >= max_attempts:
+                    raise
+                delay_seconds = retry_delays[attempt - 1]
+                logger.warning(
+                    "request_id=%s transcript_extract_retry url=%s attempt=%s "
+                    "next_attempt=%s delay_seconds=%s error=%s",
+                    request_id,
+                    url,
+                    attempt,
+                    attempt + 1,
+                    delay_seconds,
+                    exc,
+                )
+                time.sleep(delay_seconds)
+        return None
 
+    def _extract_transcript_once(
+        self,
+        url: str,
+        request_id: str,
+        preferred_langs: tuple[str, ...],
+        options: dict,
+    ) -> Transcript | None:
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(url, download=False)
+        subtitle = self._select_subtitle(info, preferred_langs)
+        if not subtitle:
+            logger.info("request_id=%s transcript_not_found url=%s", request_id, url)
+            return None
+
+        language, source, subtitle_format = subtitle
+        raw_text = self._download_subtitle_text(subtitle_format["url"])
+        transcript_text = parse_subtitle_text(raw_text, subtitle_format.get("ext") or "")
+        if not transcript_text:
             logger.info(
-                "request_id=%s transcript_extract_complete url=%s language=%s source=%s chars=%s",
+                "request_id=%s transcript_empty url=%s language=%s source=%s",
                 request_id,
                 url,
                 language,
                 source,
-                len(transcript_text),
             )
-            transcript = Transcript(text=transcript_text, language=language, source=source)
-            self._write_cached_transcript(cache_dir, transcript, preferred_langs)
-            return transcript
-        except Exception as exc:
-            logger.warning("request_id=%s transcript_extract_failed url=%s error=%s", request_id, url, exc)
             return None
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        logger.info(
+            "request_id=%s transcript_extract_complete url=%s language=%s source=%s chars=%s",
+            request_id,
+            url,
+            language,
+            source,
+            len(transcript_text),
+        )
+        return Transcript(text=transcript_text, language=language, source=source)
+
+    def _is_retryable_transcript_error(self, error: Exception) -> bool:
+        if isinstance(error, urllib.error.HTTPError) and error.code in {429, 500, 502, 503, 504}:
+            return True
+        message = str(error).lower()
+        return (
+            "http error 429" in message
+            or "too many requests" in message
+            or "temporarily unavailable" in message
+            or "timed out" in message
+            or "timeout" in message
+        )
 
     def _select_subtitle(
         self,

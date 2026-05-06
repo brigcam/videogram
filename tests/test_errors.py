@@ -1,6 +1,6 @@
 import unittest
 
-from app.errors import classify_download_error, classify_upload_error
+from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
 
 
 class ErrorMessageTests(unittest.TestCase):
@@ -33,6 +33,12 @@ class ErrorMessageTests(unittest.TestCase):
 
         self.assertIn("dimensione", message.title)
         self.assertIn("upload", message.detail)
+
+    def test_transcript_rate_limit_message(self) -> None:
+        message = classify_transcript_error(RuntimeError("HTTP Error 429: Too Many Requests"))
+
+        self.assertIn("YouTube", message.title)
+        self.assertIn("cache", message.detail)
 
     def test_download_reddit_auth_message(self) -> None:
         message = classify_download_error(RuntimeError("[Reddit] Account authentication is required"))

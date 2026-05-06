@@ -11,8 +11,8 @@ from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.config import load_settings
-from app.downloader import DownloadError, VideoDownloader
-from app.errors import classify_download_error, classify_upload_error
+from app.downloader import DownloadError, TranscriptError, VideoDownloader
+from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
 from app.summarizer import OpenAISummarizer, SummaryError
@@ -191,7 +191,13 @@ async def maybe_send_summary(
 
     transcript_langs: tuple[str, ...] = context.application.bot_data.get("summary_transcript_langs", ("it", "en"))
     await status.edit_text("Cerco una trascrizione da riassumere...")
-    transcript = await downloader.extract_transcript(link, request_id, transcript_langs)
+    try:
+        transcript = await downloader.extract_transcript(link, request_id, transcript_langs)
+    except TranscriptError as exc:
+        logger.warning("request_id=%s transcript_failed url=%s error=%s", request_id, link, exc)
+        user_error = classify_transcript_error(exc)
+        await message.reply_text(user_error.format(request_id))
+        return
     if not transcript:
         logger.info("request_id=%s summary_skipped_no_transcript url=%s", request_id, link)
         return
