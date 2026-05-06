@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 
 from app.downloader import DownloadError, VideoDownloader
 from app.transcripts import TRANSCRIPT_CACHE_VERSION, Transcript
@@ -248,6 +249,77 @@ class DownloaderTests(unittest.TestCase):
             self.assertTrue((cache_dir / "summary.json").exists())
             self.assertTrue((cache_dir / "summary.parameters.json").exists())
             self.assertFalse(part_dir.exists())
+
+    def test_youtube_timedtext_fallback_extracts_transcript(self) -> None:
+        test_case = self
+
+        class FakeDownloader(VideoDownloader):
+            def _download_subtitle_text(self, url: str) -> str:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                if query.get("type") == ["list"]:
+                    return (
+                        '<transcript_list>'
+                        '<track lang_code="en" kind="asr" name="" lang_default="true" />'
+                        "</transcript_list>"
+                    )
+                test_case.assertEqual(query.get("lang"), ["en"])
+                test_case.assertEqual(query.get("kind"), ["asr"])
+                return '{"events":[{"segs":[{"utf8":"Hello "},{"utf8":"world"}]}]}'
+
+        downloader = FakeDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+
+        transcript = downloader._extract_youtube_timedtext_transcript(
+            {"id": "abc123"},
+            "https://www.youtube.com/watch?v=abc123",
+            "test-request",
+            ("en",),
+        )
+
+        self.assertIsNotNone(transcript)
+        self.assertEqual(transcript.text, "Hello world")
+        self.assertEqual(transcript.language, "en")
+        self.assertEqual(transcript.source, "youtube_timedtext")
+
+    def test_youtube_timedtext_fallback_can_request_translation(self) -> None:
+        test_case = self
+
+        class FakeDownloader(VideoDownloader):
+            def _download_subtitle_text(self, url: str) -> str:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                if query.get("type") == ["list"]:
+                    return (
+                        '<transcript_list>'
+                        '<track lang_code="en" kind="asr" name="" lang_default="true" />'
+                        '<target lang_code="it" cantran="true" />'
+                        "</transcript_list>"
+                    )
+                test_case.assertEqual(query.get("lang"), ["en"])
+                test_case.assertEqual(query.get("tlang"), ["it"])
+                return '{"events":[{"segs":[{"utf8":"Ciao mondo"}]}]}'
+
+        downloader = FakeDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+
+        transcript = downloader._extract_youtube_timedtext_transcript(
+            {"id": "abc123"},
+            "https://www.youtube.com/watch?v=abc123",
+            "test-request",
+            ("it",),
+        )
+
+        self.assertIsNotNone(transcript)
+        self.assertEqual(transcript.text, "Ciao mondo")
+        self.assertEqual(transcript.language, "it")
+        self.assertEqual(transcript.source, "youtube_timedtext_translated")
 
 
 if __name__ == "__main__":

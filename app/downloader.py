@@ -5,11 +5,13 @@ import logging
 import shutil
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from app.transcripts import TRANSCRIPT_CACHE_VERSION, Transcript, parse_subtitle_text
 from yt_dlp import YoutubeDL
@@ -732,32 +734,185 @@ class VideoDownloader:
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=False)
         subtitle = self._select_subtitle(info, preferred_langs)
-        if not subtitle:
-            logger.info("request_id=%s transcript_not_found url=%s", request_id, url)
+        if subtitle:
+            language, source, subtitle_format = subtitle
+            try:
+                raw_text = self._download_subtitle_text(subtitle_format["url"])
+                transcript_text = parse_subtitle_text(raw_text, subtitle_format.get("ext") or "")
+            except Exception as exc:
+                logger.warning(
+                    "request_id=%s transcript_primary_download_failed url=%s language=%s source=%s error=%s",
+                    request_id,
+                    url,
+                    language,
+                    source,
+                    exc,
+                )
+            else:
+                if transcript_text:
+                    logger.info(
+                        "request_id=%s transcript_extract_complete url=%s language=%s source=%s chars=%s",
+                        request_id,
+                        url,
+                        language,
+                        source,
+                        len(transcript_text),
+                    )
+                    return Transcript(text=transcript_text, language=language, source=source)
+                logger.info(
+                    "request_id=%s transcript_empty url=%s language=%s source=%s",
+                    request_id,
+                    url,
+                    language,
+                    source,
+                )
+
+        transcript = self._extract_youtube_timedtext_transcript(info, url, request_id, preferred_langs)
+        if transcript:
+            return transcript
+        logger.info("request_id=%s transcript_not_found url=%s", request_id, url)
+        return None
+
+    def _extract_youtube_timedtext_transcript(
+        self,
+        info: dict,
+        url: str,
+        request_id: str,
+        preferred_langs: tuple[str, ...],
+    ) -> Transcript | None:
+        video_id = self._youtube_video_id(info, url)
+        if not video_id:
             return None
 
-        language, source, subtitle_format = subtitle
-        raw_text = self._download_subtitle_text(subtitle_format["url"])
-        transcript_text = parse_subtitle_text(raw_text, subtitle_format.get("ext") or "")
-        if not transcript_text:
-            logger.info(
-                "request_id=%s transcript_empty url=%s language=%s source=%s",
-                request_id,
-                url,
-                language,
-                source,
-            )
-            return None
-
-        logger.info(
-            "request_id=%s transcript_extract_complete url=%s language=%s source=%s chars=%s",
-            request_id,
-            url,
-            language,
-            source,
-            len(transcript_text),
+        list_url = "https://www.youtube.com/api/timedtext?" + urllib.parse.urlencode(
+            {
+                "v": video_id,
+                "asrs": "1",
+                "fmts": "1",
+                "tlangs": "1",
+                "type": "list",
+            }
         )
-        return Transcript(text=transcript_text, language=language, source=source)
+        try:
+            raw_xml = self._download_subtitle_text(list_url)
+        except Exception as exc:
+            logger.warning("request_id=%s transcript_timedtext_list_failed video_id=%s error=%s", request_id, video_id, exc)
+            return None
+
+        tracks, targets = self._parse_youtube_timedtext_list(raw_xml)
+        track = self._select_timedtext_track(tracks, preferred_langs)
+        target_language = ""
+        source = "youtube_timedtext"
+        if not track and tracks:
+            translated = self._select_timedtext_target(targets, preferred_langs)
+            if translated:
+                track = tracks[0]
+                target_language = translated.get("lang_code", "")
+                source = "youtube_timedtext_translated"
+            else:
+                track = tracks[0]
+        if not track:
+            return None
+
+        language = target_language or track.get("lang_code") or ""
+        for ext in ("json3", "vtt"):
+            subtitle_url = self._build_youtube_timedtext_url(video_id, track, ext, target_language)
+            try:
+                raw_text = self._download_subtitle_text(subtitle_url)
+            except Exception as exc:
+                logger.warning(
+                    "request_id=%s transcript_timedtext_download_failed video_id=%s language=%s ext=%s error=%s",
+                    request_id,
+                    video_id,
+                    language,
+                    ext,
+                    exc,
+                )
+                continue
+            transcript_text = parse_subtitle_text(raw_text, ext)
+            if transcript_text:
+                logger.info(
+                    "request_id=%s transcript_timedtext_complete video_id=%s language=%s source=%s chars=%s",
+                    request_id,
+                    video_id,
+                    language,
+                    source,
+                    len(transcript_text),
+                )
+                return Transcript(text=transcript_text, language=language, source=source)
+        return None
+
+    def _youtube_video_id(self, info: dict, url: str) -> str:
+        video_id = info.get("id")
+        if isinstance(video_id, str) and video_id:
+            return video_id
+        parsed = urlparse(url)
+        if parsed.netloc.endswith("youtu.be"):
+            return parsed.path.strip("/")
+        if "youtube." in parsed.netloc:
+            return (parse_qs(parsed.query).get("v") or [""])[0]
+        return ""
+
+    def _parse_youtube_timedtext_list(self, raw_xml: str) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+        try:
+            root = ET.fromstring(raw_xml)
+        except ET.ParseError:
+            return [], []
+        tracks = [dict(track.attrib) for track in root.findall(".//track") if track.attrib.get("lang_code")]
+        targets = [dict(target.attrib) for target in root.findall(".//target") if target.attrib.get("lang_code")]
+        return tracks, targets
+
+    def _select_timedtext_track(self, tracks: list[dict[str, str]], preferred_langs: tuple[str, ...]) -> dict[str, str] | None:
+        for language in self._matching_preferred_languages((track.get("lang_code", "") for track in tracks), preferred_langs):
+            for track in tracks:
+                if track.get("lang_code") == language:
+                    return track
+        if preferred_langs:
+            return None
+        for track in tracks:
+            if track.get("lang_default") == "true":
+                return track
+        return tracks[0] if tracks else None
+
+    def _select_timedtext_target(self, targets: list[dict[str, str]], preferred_langs: tuple[str, ...]) -> dict[str, str] | None:
+        for language in self._matching_preferred_languages((target.get("lang_code", "") for target in targets), preferred_langs):
+            for target in targets:
+                if target.get("lang_code") == language and target.get("cantran", "true") == "true":
+                    return target
+        return None
+
+    def _matching_preferred_languages(self, languages, preferred_langs: tuple[str, ...]) -> list[str]:
+        available = list(languages)
+        matched: list[str] = []
+        for preferred in preferred_langs:
+            preferred = preferred.lower()
+            for language in available:
+                if language in matched:
+                    continue
+                normalized = language.lower()
+                if normalized == preferred or normalized.startswith(f"{preferred}-"):
+                    matched.append(language)
+        return matched
+
+    def _build_youtube_timedtext_url(
+        self,
+        video_id: str,
+        track: dict[str, str],
+        ext: str,
+        target_language: str = "",
+    ) -> str:
+        params = {
+            "v": video_id,
+            "lang": track.get("lang_code", ""),
+            "fmt": ext,
+        }
+        if track.get("kind"):
+            params["kind"] = track["kind"]
+        if track.get("name"):
+            params["name"] = track["name"]
+        if target_language:
+            params["tlang"] = target_language
+        return "https://www.youtube.com/api/timedtext?" + urllib.parse.urlencode(params)
 
     def _is_retryable_transcript_error(self, error: Exception) -> bool:
         if isinstance(error, urllib.error.HTTPError) and error.code in {429, 500, 502, 503, 504}:
