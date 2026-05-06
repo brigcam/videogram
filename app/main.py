@@ -16,6 +16,7 @@ from app.errors import classify_download_error, classify_upload_error
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
 from app.summarizer import OpenAISummarizer, SummaryError
+from app.telegram_formatting import summary_markdown_to_telegram_html
 
 
 logger = logging.getLogger(__name__)
@@ -212,7 +213,11 @@ async def maybe_send_summary(
     if not summary:
         return
 
-    await message.reply_text(summary.text[:4096])
+    await message.reply_text(
+        summary_markdown_to_telegram_html(summary.text)[:4096],
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
     await send_transcript_file(message, downloaded.title, transcript.text, request_id)
 
 
