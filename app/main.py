@@ -855,14 +855,22 @@ async def publish_summary_task(
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
-        await send_transcript_file(
-            message,
-            downloader,
-            downloader.cache_dir_for_url(link),
-            result.transcript_langs,
-            result.transcript.text,
-            request_id,
-        )
+        if message.chat.type == "private":
+            await send_transcript_file(
+                message,
+                downloader,
+                downloader.cache_dir_for_url(link),
+                result.transcript_langs,
+                result.transcript.text,
+                request_id,
+            )
+        else:
+            logger.info(
+                "request_id=%s transcript_file_skipped_non_private chat_id=%s chat_type=%s",
+                request_id,
+                message.chat_id,
+                message.chat.type,
+            )
     except TelegramError as exc:
         logger.warning("request_id=%s summary_publish_failed url=%s error=%s", request_id, link, exc)
 
