@@ -1,7 +1,9 @@
 import html
 import logging
+import tempfile
 import time
 import uuid
+from pathlib import Path
 
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
@@ -210,9 +212,34 @@ async def maybe_send_summary(
     if not summary:
         return
 
-    cache_label = " (cache)" if summary.cached else ""
-    text = f"Riassunto{cache_label}\n\n{summary.text}"
-    await message.reply_text(text[:4096])
+    await message.reply_text(summary.text[:4096])
+    await send_transcript_file(message, downloaded.title, transcript.text, request_id)
+
+
+async def send_transcript_file(message, title: str, transcript_text: str, request_id: str) -> None:
+    safe_title = "".join(char if char.isalnum() or char in "._- " else "_" for char in title).strip()
+    safe_title = safe_title[:80] or "trascrizione"
+    filename = f"{safe_title} - transcript.txt"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        transcript_path = Path(temp_dir) / filename
+        transcript_path.write_text(transcript_text, encoding="utf-8")
+        logger.info(
+            "request_id=%s transcript_file_send_start path=%s chars=%s",
+            request_id,
+            transcript_path,
+            len(transcript_text),
+        )
+        with transcript_path.open("rb") as transcript_file:
+            await message.reply_document(
+                document=transcript_file,
+                filename=filename,
+                caption="Trascrizione integrale",
+                read_timeout=120,
+                write_timeout=120,
+                connect_timeout=30,
+                pool_timeout=30,
+            )
+        logger.info("request_id=%s transcript_file_send_complete", request_id)
 
 
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
