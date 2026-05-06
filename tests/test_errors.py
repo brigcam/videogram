@@ -50,7 +50,7 @@ class ErrorMessageTests(unittest.TestCase):
     def test_transcript_rate_limit_message(self) -> None:
         message = classify_transcript_error(RuntimeError("HTTP Error 429: Too Many Requests"))
 
-        self.assertIn("YouTube", message.title)
+        self.assertIn("piattaforma", message.title)
         self.assertIn("cache", message.detail)
 
     def test_download_reddit_auth_message(self) -> None:

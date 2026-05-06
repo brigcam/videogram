@@ -13,7 +13,7 @@ class Settings:
     openai_api_key: str = ""
     openai_summary_model: str = "gpt-5.2"
     openai_summary_prompt: str = (
-        "Riassumi la trascrizione del video in italiano, in modo utile e conciso. "
+        "Riassumi il contenuto in italiano, in modo utile e conciso. "
         "Evidenzia i punti principali e conserva eventuali dettagli concreti importanti."
     )
     openai_summary_max_transcript_chars: int = 20000

@@ -27,7 +27,7 @@ services:
       ALLOWED_USER_IDS: ${ALLOWED_USER_IDS:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_SUMMARY_MODEL: ${OPENAI_SUMMARY_MODEL:-gpt-5.2}
-      OPENAI_SUMMARY_PROMPT: ${OPENAI_SUMMARY_PROMPT:-Riassumi la trascrizione del video in italiano, in modo utile e conciso. Evidenzia i punti principali e conserva eventuali dettagli concreti importanti.}
+      OPENAI_SUMMARY_PROMPT: ${OPENAI_SUMMARY_PROMPT:-Riassumi il contenuto in italiano, in modo utile e conciso. Evidenzia i punti principali e conserva eventuali dettagli concreti importanti.}
       OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS: ${OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS:-20000}
       SUMMARY_TRANSCRIPT_LANGS: ${SUMMARY_TRANSCRIPT_LANGS:-it,en}
       MAX_DOWNLOAD_MB: ${MAX_DOWNLOAD_MB:-512}

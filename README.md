@@ -1,7 +1,7 @@
 # Videogram
 
-Bot Telegram containerizzato che intercetta link video in chat e li ripubblica come video nativi Telegram.
-Quando l'estrattore non trova un video, Videogram prova anche a ripubblicare foto, gallery, audio o testo del post.
+Bot Telegram containerizzato che intercetta link social in chat e li ripubblica come contenuti nativi Telegram.
+Quando il post contiene media, Videogram prova a inviare video, foto, gallery o audio; quando trova solo testo, lo ripubblica come messaggio.
 
 Supporta:
 
@@ -26,7 +26,7 @@ Supporta:
 - `vm.tiktok.com/...`
 - `vt.tiktok.com/...`
 
-Per Reddit, Instagram, X/Twitter, Facebook, Threads e TikTok il supporto non-video e' best effort: se `yt-dlp` espone immagini/gallery/audio/testo, Videogram li invia come foto, media group, audio o testo Telegram. Per i video troppo grandi, Videogram prova formati progressivamente piu piccoli prima di arrendersi; se nessun video rientra nel limite, prova anche audio-only. Se aumenti `MAX_DOWNLOAD_MB`, i video gia' in cache scaricati con un limite piu basso vengono rivalutati una volta per provare a ottenere una qualita' migliore; se non cambia nulla, la cache viene marcata come gia' verificata per il nuovo limite.
+Per alcuni social il supporto non-video e' best effort: se `yt-dlp` o un fallback dedicato espone immagini/gallery/audio/testo, Videogram li invia come foto, media group, audio o testo Telegram. Per i contenuti video troppo grandi, Videogram prova formati progressivamente piu piccoli prima di arrendersi; se nessun video rientra nel limite, prova anche audio-only. Se aumenti `MAX_DOWNLOAD_MB`, i media gia' in cache scaricati con un limite piu basso vengono rivalutati una volta per provare a ottenere una qualita' migliore; se non cambia nulla, la cache viene marcata come gia' verificata per il nuovo limite.
 
 Nota: il supporto Threads usa un plugin `yt-dlp` esterno, installato da GitHub e bloccato a commit specifico in `requirements.txt`.
 
@@ -46,7 +46,7 @@ nano .env
 docker compose up -d --build
 ```
 
-4. Aggiungi il bot a una chat o scrivigli in privato, poi manda un link video supportato.
+4. Aggiungi il bot a una chat o scrivigli in privato, poi manda un link supportato.
 
 Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFather, altrimenti il bot non riceve tutti i messaggi normali della chat.
 
@@ -62,10 +62,10 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `TELEGRAM_LOCAL_MODE` | `false` | Abilita la modalita locale del client Telegram quando usi il Bot API server self-hosted |
 | `ALLOWED_CHAT_IDS` | vuota | Lista di gruppi/supergruppi Telegram autorizzati, separati da virgola. Vuota = tutte le chat di gruppo autorizzate |
 | `ALLOWED_USER_IDS` | vuota | Lista di utenti Telegram autorizzati a usare il bot in privato, separati da virgola. Vuota = tutti gli utenti autorizzati in privato |
-| `OPENAI_API_KEY` | vuota | API key OpenAI per generare riassunti dalle trascrizioni. Vuota = riassunti disattivati |
+| `OPENAI_API_KEY` | vuota | API key OpenAI per generare riassunti da trascrizioni o descrizioni. Vuota = riassunti disattivati |
 | `OPENAI_SUMMARY_MODEL` | `gpt-5.2` | Modello OpenAI usato per i riassunti |
-| `OPENAI_SUMMARY_PROMPT` | vedi `.env.example` | Prompt usato per trasformare la trascrizione in riassunto |
-| `OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS` | `20000` | Numero massimo di caratteri di trascrizione inviati a OpenAI |
+| `OPENAI_SUMMARY_PROMPT` | vedi `.env.example` | Prompt usato per trasformare il testo disponibile in riassunto |
+| `OPENAI_SUMMARY_MAX_TRANSCRIPT_CHARS` | `20000` | Numero massimo di caratteri inviati a OpenAI |
 | `SUMMARY_TRANSCRIPT_LANGS` | `it,en` | Lingue preferite per sottotitoli/trascrizioni, separate da virgola |
 | `MAX_DOWNLOAD_MB` | `512` | Limite massimo del file scaricato e salvato in cache |
 | `MAX_TELEGRAM_UPLOAD_MB` | `48` | Limite massimo del file inviato tramite Bot API pubblico. Deve restare sotto i 50 MB di Telegram |
@@ -75,14 +75,14 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `LOG_FILE` | `/var/log/videogram/videogram.log` | File log persistente nel container |
 | `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
 | `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
-| `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per video YouTube che richiedono login/verifica |
+| `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per piattaforme che richiedono login/verifica |
 | `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt`, `x.txt` e `tiktok.txt` |
 
-I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
+I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
-Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un video in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram. Con il Bot API server locale puoi alzare questo valore, per esempio a `1900`.
+Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un media in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram. Con il Bot API server locale puoi alzare questo valore, per esempio a `1900`.
 
-Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere le challenge YouTube/EJS.
+Il container include Node.js come runtime JavaScript per permettere a `yt-dlp` di risolvere eventuali challenge JavaScript/EJS.
 
 ## Bot API server locale
 
@@ -116,9 +116,9 @@ Il servizio locale usa `./telegram-bot-api-data` per i propri dati ed e' ignorat
 
 ## Riassunti
 
-Se `OPENAI_API_KEY` e' configurata, Videogram prova a recuperare una trascrizione o sottotitolo tramite `yt-dlp` dopo aver inviato il video. Quando la trascrizione esiste, invia un secondo messaggio con un riassunto generato via OpenAI Responses API.
+Se `OPENAI_API_KEY` e' configurata, Videogram prova a recuperare una trascrizione o sottotitolo tramite `yt-dlp` mentre prepara il contenuto. Quando la trascrizione esiste, invia un secondo messaggio con un riassunto generato via OpenAI Responses API. Se non trova una trascrizione ma il post ha una descrizione o testo, prova a riassumere quello.
 
-I riassunti vengono salvati nella stessa cache locale del video. La cache viene riusata solo se URL normalizzato, modello, prompt e testo della trascrizione coincidono, cosi non spendi token quando lo stesso video viene richiesto di nuovo.
+I riassunti vengono salvati nella stessa cache locale del contenuto. La cache viene riusata solo se URL normalizzato, modello, prompt, tipo di testo e testo di partenza coincidono, cosi non spendi token quando lo stesso post viene richiesto di nuovo.
 
 Esempio:
 

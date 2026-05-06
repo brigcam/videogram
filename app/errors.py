@@ -16,8 +16,8 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
 
     if "sign in to confirm" in message or "not a bot" in message:
         return UserErrorMessage(
-            "YouTube ha richiesto una verifica anti-bot.",
-            "Ho provato a scaricare il video, ma YouTube chiede una sessione valida. "
+            "La piattaforma ha richiesto una verifica anti-bot.",
+            "Ho provato a scaricare il contenuto, ma serve una sessione valida. "
             "Controlla che i cookies siano presenti e aggiornati.",
         )
 
@@ -68,29 +68,29 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
 
     if "private video" in message or "video is private" in message:
         return UserErrorMessage(
-            "Questo video e privato.",
+            "Questo contenuto e privato.",
             "Non posso scaricarlo senza un account che abbia accesso al contenuto.",
         )
 
     if "age" in message and ("restricted" in message or "confirm" in message):
         return UserErrorMessage(
-            "Questo video sembra avere restrizioni di eta.",
-            "Serve una sessione YouTube valida nei cookies per poterlo scaricare.",
+            "Questo contenuto sembra avere restrizioni di eta.",
+            "Serve una sessione valida nei cookies per poterlo scaricare.",
         )
 
     if "video unavailable" in message or "this video is unavailable" in message:
         return UserErrorMessage(
-            "Questo video non risulta disponibile.",
+            "Questo contenuto non risulta disponibile.",
             "Potrebbe essere stato rimosso, bloccato per area geografica o non accessibile dal server.",
         )
 
     if "larger than the configured limit" in message or "file is larger than max-filesize" in message:
         size_detail = format_size_limit_detail(str(error))
-        detail = "Aumenta MAX_DOWNLOAD_MB oppure prova un video piu piccolo."
+        detail = "Aumenta MAX_DOWNLOAD_MB oppure prova un contenuto piu piccolo."
         if size_detail:
             detail = f"{size_detail}\n{detail}"
         return UserErrorMessage(
-            "Il video supera il limite configurato.",
+            "Il contenuto supera il limite configurato.",
             detail,
         )
 
@@ -98,19 +98,19 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
         size_detail = format_size_limit_detail(str(error))
         detail = (
             "Il Bot API pubblico accetta upload fino a circa 50 MB. "
-            "Riduci MAX_TELEGRAM_UPLOAD_MB solo per tenere piu margine, oppure prova un video piu piccolo."
+            "Riduci MAX_TELEGRAM_UPLOAD_MB solo per tenere piu margine, oppure prova un contenuto piu piccolo."
         )
         if size_detail:
             detail = f"{size_detail}\n{detail}"
         return UserErrorMessage(
-            "Il video supera il limite upload di Telegram.",
+            "Il contenuto supera il limite upload di Telegram.",
             detail,
         )
 
     if "requested format is not available" in message or "no video formats found" in message:
         return UserErrorMessage(
-            "Non ho trovato un formato video scaricabile.",
-            "YouTube potrebbe aver richiesto una challenge JavaScript/EJS oppure non sta offrendo un formato compatibile.",
+            "Non ho trovato un formato scaricabile.",
+            "La piattaforma potrebbe aver richiesto una challenge JavaScript/EJS oppure non sta offrendo un formato compatibile.",
         )
 
     if "unsupported url" in message:
@@ -122,11 +122,11 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
     if "timed out" in message or "timeout" in message:
         return UserErrorMessage(
             "Il download e andato in timeout.",
-            "Il server o YouTube hanno risposto troppo lentamente. Riprova tra poco.",
+            "Il server o la piattaforma hanno risposto troppo lentamente. Riprova tra poco.",
         )
 
     return UserErrorMessage(
-        "Non sono riuscito a scaricare questo video.",
+        "Non sono riuscito a scaricare questo contenuto.",
         "Il downloader ha restituito un errore non classificato. Controlla i log con l'ID errore qui sotto.",
     )
 
@@ -137,7 +137,7 @@ def classify_upload_error(error: Exception) -> UserErrorMessage:
     if "file is too big" in message or "request entity too large" in message:
         return UserErrorMessage(
             "Telegram ha rifiutato il file per dimensione.",
-            "Il download e riuscito, ma l'upload del video e troppo grande per questa modalita bot.",
+            "Il download e riuscito, ma l'upload del contenuto e troppo grande per questa modalita bot.",
         )
 
     if "timed out" in message or "timeout" in message:
@@ -153,7 +153,7 @@ def classify_upload_error(error: Exception) -> UserErrorMessage:
         )
 
     return UserErrorMessage(
-        "Qualcosa e andato storto durante l'invio del video.",
+        "Qualcosa e andato storto durante l'invio del contenuto.",
         "Il download potrebbe essere riuscito, ma Telegram ha restituito un errore. Controlla i log con l'ID qui sotto.",
     )
 
@@ -163,7 +163,7 @@ def format_size_limit_detail(raw_message: str) -> str:
     if not parsed:
         return ""
     size_bytes, max_bytes = parsed
-    return f"Dimensione video: {format_bytes(size_bytes)}. Limite configurato: {format_bytes(max_bytes)}."
+    return f"Dimensione contenuto: {format_bytes(size_bytes)}. Limite configurato: {format_bytes(max_bytes)}."
 
 
 def parse_size_limit(raw_message: str) -> tuple[int, int] | None:
@@ -227,18 +227,18 @@ def classify_transcript_error(error: Exception) -> UserErrorMessage:
 
     if "http error 429" in message or "too many requests" in message:
         return UserErrorMessage(
-            "Video inviato, ma YouTube ha limitato la trascrizione.",
-            "Ho riprovato piu volte a recuperare sottotitoli/trascrizione, ma YouTube ha risposto Too Many Requests. "
-            "Riprova piu tardi: il video e' gia in cache, quindi non dovro' riscaricarlo.",
+            "Contenuto inviato, ma la piattaforma ha limitato la trascrizione.",
+            "Ho riprovato piu volte a recuperare sottotitoli/trascrizione, ma la piattaforma ha risposto Too Many Requests. "
+            "Riprova piu tardi: il contenuto e' gia in cache, quindi non dovro' riscaricarlo.",
         )
 
     if "timed out" in message or "timeout" in message:
         return UserErrorMessage(
-            "Video inviato, ma la trascrizione e andata in timeout.",
-            "Il video e' stato caricato correttamente, pero' il recupero dei sottotitoli ha impiegato troppo tempo.",
+            "Contenuto inviato, ma la trascrizione e andata in timeout.",
+            "Il contenuto e' stato caricato correttamente, pero' il recupero dei sottotitoli ha impiegato troppo tempo.",
         )
 
     return UserErrorMessage(
-        "Video inviato, ma non ho recuperato la trascrizione.",
+        "Contenuto inviato, ma non ho recuperato la trascrizione.",
         "Il riassunto non e partito per un errore durante il recupero dei sottotitoli. Controlla i log con l'ID qui sotto.",
     )

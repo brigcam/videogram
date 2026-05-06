@@ -5,7 +5,7 @@ VIDEO_CAPTION_LIMIT = 1024
 
 
 def build_video_caption(source_url: str, title: str, description: str = "") -> str:
-    title = title.strip() or "Video"
+    title = title.strip() or "Contenuto"
     description = normalize_caption_text(description)
     escaped_source_url = html.escape(source_url, quote=True)
 

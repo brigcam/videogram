@@ -102,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             update.effective_message.message_id,
         )
         await update.effective_message.reply_text(
-            "Ciao, sono Videogram. Mandami un link video supportato e lo ripubblico come video nativo Telegram."
+            "Ciao, sono Videogram. Mandami un link supportato e lo ripubblico come contenuto nativo Telegram."
         )
 
 
@@ -129,7 +129,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     for link in links[:3]:
         request_id = uuid.uuid4().hex[:12]
         request_started_at = time.perf_counter()
-        status = await message.reply_text("Preparo il video...")
+        status = await message.reply_text("Preparo il contenuto...")
         summary_task = start_summary_task(context, downloader, link, request_id)
         post = None
         try:
@@ -422,7 +422,7 @@ async def prepare_summary(
 
     try:
         summary = await summarizer.summarize(
-            "Video",
+            "Contenuto",
             link,
             transcript,
             downloader.cache_dir_for_url(link),
@@ -446,7 +446,7 @@ async def wait_for_summary_status(status, summary_task: asyncio.Task[SummaryPipe
     if not summary_task or summary_task.done():
         return
     try:
-        await status.edit_text("Video inviato, attendo il riassunto...")
+        await status.edit_text("Contenuto inviato, attendo il riassunto...")
     except TelegramError as exc:
         logger.warning("summary_status_update_failed error=%s", exc)
 
