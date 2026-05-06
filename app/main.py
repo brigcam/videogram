@@ -212,7 +212,7 @@ async def send_downloaded_post(
                 post.audio.path,
                 post.audio.path.stat().st_size,
             )
-            audio_caption = build_video_caption(post.source_url, post.audio.title, post.audio.description)
+            audio_caption = build_video_caption(post.source_url, post.audio.title)
             sent_audio = await reply_audio_with_cache(message, downloader, post.audio, audio_caption, request_id)
             save_telegram_audio_file_id(downloader, post.audio, sent_audio, request_id)
         return
@@ -316,6 +316,7 @@ async def reply_audio_with_cache(message, downloader: VideoDownloader, audio, ca
                 audio=audio.telegram_file_id,
                 caption=caption,
                 parse_mode=ParseMode.HTML,
+                title=audio.title,
                 read_timeout=120,
                 write_timeout=120,
                 connect_timeout=30,
@@ -331,6 +332,7 @@ async def reply_audio_with_cache(message, downloader: VideoDownloader, audio, ca
             audio=audio_file,
             caption=caption,
             parse_mode=ParseMode.HTML,
+            title=audio.title,
             read_timeout=120,
             write_timeout=120,
             connect_timeout=30,
