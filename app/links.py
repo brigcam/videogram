@@ -51,6 +51,14 @@ X_HOSTS = {
     "mobile.twitter.com",
 }
 
+TIKTOK_HOSTS = {
+    "tiktok.com",
+    "www.tiktok.com",
+    "m.tiktok.com",
+    "vm.tiktok.com",
+    "vt.tiktok.com",
+}
+
 URL_RE = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 
 
@@ -63,6 +71,7 @@ def extract_supported_links(text: str) -> list[str]:
         normalize_facebook_url,
         normalize_threads_url,
         normalize_x_url,
+        normalize_tiktok_url,
     )
     for match in URL_RE.finditer(text or ""):
         candidate = match.group(0).rstrip(".,;:!?)]}")
@@ -210,5 +219,32 @@ def normalize_x_url(url: str) -> str | None:
         status_id = path_parts[2]
         if re.fullmatch(r"[A-Za-z0-9_]{1,15}", username) and re.fullmatch(r"\d{5,}", status_id):
             return urlunparse(("https", "x.com", f"/{username}/status/{status_id}", "", "", ""))
+
+    return None
+
+
+def normalize_tiktok_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    if host not in TIKTOK_HOSTS:
+        return None
+
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if host in {"vm.tiktok.com", "vt.tiktok.com"}:
+        short_id = path_parts[0] if path_parts else ""
+        if re.fullmatch(r"[\w-]{4,}", short_id):
+            return urlunparse(("https", host, f"/{short_id}/", "", "", ""))
+        return None
+
+    if len(path_parts) >= 3 and path_parts[0].startswith("@") and path_parts[1] == "video":
+        username = path_parts[0][1:]
+        video_id = path_parts[2]
+        if re.fullmatch(r"[\w.]{1,30}", username) and re.fullmatch(r"\d{5,}", video_id):
+            return urlunparse(("https", "www.tiktok.com", f"/@{username}/video/{video_id}", "", "", ""))
+
+    if len(path_parts) >= 2 and path_parts[0] in {"t", "v"}:
+        video_id = path_parts[1]
+        if re.fullmatch(r"[\w-]{4,}", video_id):
+            return urlunparse(("https", "www.tiktok.com", f"/{path_parts[0]}/{video_id}/", "", "", ""))
 
     return None

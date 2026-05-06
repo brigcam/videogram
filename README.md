@@ -21,6 +21,9 @@ Supporta:
 - `threads.com/t/...`
 - `x.com/.../status/...`
 - `twitter.com/.../status/...`
+- `tiktok.com/@.../video/...`
+- `vm.tiktok.com/...`
+- `vt.tiktok.com/...`
 
 Nota: il supporto Threads usa un plugin `yt-dlp` esterno, installato da GitHub e bloccato a commit specifico in `requirements.txt`.
 
@@ -70,7 +73,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
 | `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
 | `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per video YouTube che richiedono login/verifica |
-| `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt` e `x.txt` |
+| `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt`, `x.txt` e `tiktok.txt` |
 
 I video scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 
@@ -155,6 +158,7 @@ Alcune piattaforme possono richiedere una sessione autenticata o applicare contr
 - `./cookies/facebook.txt`
 - `./cookies/threads.txt`
 - `./cookies/x.txt`
+- `./cookies/tiktok.txt`
 
 Poi aggiungi al tuo `.env`:
 

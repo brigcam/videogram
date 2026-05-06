@@ -5,6 +5,7 @@ from app.links import (
     normalize_facebook_url,
     normalize_instagram_url,
     normalize_reddit_url,
+    normalize_tiktok_url,
     normalize_threads_url,
     normalize_x_url,
     normalize_youtube_url,
@@ -111,12 +112,25 @@ class YoutubeLinkTests(unittest.TestCase):
             "https://x.com/openai/status/1234567890123456789",
         )
 
+    def test_normalizes_tiktok_video_urls(self) -> None:
+        self.assertEqual(
+            normalize_tiktok_url("https://www.tiktok.com/@openai/video/1234567890123456789?is_from_webapp=1"),
+            "https://www.tiktok.com/@openai/video/1234567890123456789",
+        )
+
+    def test_normalizes_tiktok_short_urls(self) -> None:
+        self.assertEqual(
+            normalize_tiktok_url("https://vm.tiktok.com/ZMabcdef/"),
+            "https://vm.tiktok.com/ZMabcdef/",
+        )
+
     def test_extracts_all_supported_social_links(self) -> None:
         text = (
             "https://www.instagram.com/reel/C7abcDEF123/ "
             "https://www.facebook.com/watch/?v=123456789012345 "
             "https://www.threads.net/@openai/post/C7abcDEF123 "
-            "https://x.com/openai/status/1234567890123456789"
+            "https://x.com/openai/status/1234567890123456789 "
+            "https://www.tiktok.com/@openai/video/1234567890123456789"
         )
 
         self.assertEqual(
@@ -126,6 +140,7 @@ class YoutubeLinkTests(unittest.TestCase):
                 "https://www.facebook.com/watch/?v=123456789012345",
                 "https://www.threads.net/@openai/post/C7abcDEF123/",
                 "https://x.com/openai/status/1234567890123456789",
+                "https://www.tiktok.com/@openai/video/1234567890123456789",
             ],
         )
 

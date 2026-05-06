@@ -46,6 +46,12 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
             "Esporta i cookies di X in ./cookies/x.txt e riprova.",
         )
 
+    if ("login required" in message or "authentication" in message or "cookies" in message) and "tiktok" in message:
+        return UserErrorMessage(
+            "TikTok richiede una sessione autenticata.",
+            "Esporta i cookies TikTok in ./cookies/tiktok.txt e riprova.",
+        )
+
     if "unsupported url" in message and ("threads.com" in message or "threads.net" in message):
         return UserErrorMessage(
             "Threads non e stato scaricato.",

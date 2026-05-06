@@ -64,6 +64,12 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("X/Twitter", message.title)
         self.assertIn("x.txt", message.detail)
 
+    def test_download_tiktok_auth_message(self) -> None:
+        message = classify_download_error(RuntimeError("[TikTok] cookies are required"))
+
+        self.assertIn("TikTok", message.title)
+        self.assertIn("tiktok.txt", message.detail)
+
     def test_download_threads_unsupported_message(self) -> None:
         message = classify_download_error(RuntimeError("ERROR: Unsupported URL: https://www.threads.com/@u/post/abc123/"))
 
