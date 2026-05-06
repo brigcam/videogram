@@ -69,8 +69,8 @@ class OpenAISummarizer:
         request_id: str,
     ) -> SummaryResult:
         transcript_text = transcript.text[: self.max_transcript_chars]
-        cache_key = self._cache_key(transcript_text)
-        cached = self._load_cached_summary(cache_dir, cache_key)
+        parameters = self._summary_parameters(transcript_text)
+        cached = self._load_cached_summary(cache_dir, parameters)
         if cached:
             logger.info("request_id=%s summary_cache_hit chars=%s", request_id, len(cached))
             return SummaryResult(cached, cached=True)
@@ -121,7 +121,7 @@ class OpenAISummarizer:
         if not summary:
             raise SummaryError("OpenAI API response did not contain output text.")
 
-        self._write_cached_summary(cache_dir, cache_key, summary)
+        self._write_cached_summary(cache_dir, parameters, summary)
         logger.info(
             "request_id=%s summary_complete elapsed_ms=%s chars=%s",
             request_id,
@@ -130,15 +130,23 @@ class OpenAISummarizer:
         )
         return SummaryResult(summary)
 
-    def _cache_key(self, transcript_text: str) -> str:
-        payload = {
+    def _summary_parameters(self, transcript_text: str) -> dict:
+        parameters = {
             "model": self.model,
             "prompt": self.prompt,
+            "max_transcript_chars": self.max_transcript_chars,
+            "openai_api_key_sha256": hashlib.sha256(self.api_key.encode("utf-8")).hexdigest(),
             "transcript_sha256": hashlib.sha256(transcript_text.encode("utf-8")).hexdigest(),
         }
-        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        parameters["parameters_sha256"] = hashlib.sha256(
+            json.dumps(parameters, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        return parameters
 
-    def _load_cached_summary(self, cache_dir: Path, cache_key: str) -> str | None:
+    def _cache_key(self, transcript_text: str) -> str:
+        return self._summary_parameters(transcript_text)["parameters_sha256"]
+
+    def _load_cached_summary(self, cache_dir: Path, parameters: dict) -> str | None:
         metadata_path = cache_dir / "summary.json"
         if not metadata_path.exists():
             return None
@@ -146,19 +154,25 @@ class OpenAISummarizer:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        if metadata.get("cache_key") != cache_key:
+        cached_parameters = metadata.get("parameters")
+        if not isinstance(cached_parameters, dict):
+            if metadata.get("cache_key") != parameters["parameters_sha256"]:
+                return None
+        elif cached_parameters != parameters:
             return None
         summary = metadata.get("summary")
         return summary if isinstance(summary, str) and summary.strip() else None
 
-    def _write_cached_summary(self, cache_dir: Path, cache_key: str, summary: str) -> None:
+    def _write_cached_summary(self, cache_dir: Path, parameters: dict, summary: str) -> None:
         cache_dir.mkdir(parents=True, exist_ok=True)
         metadata = {
-            "cache_key": cache_key,
+            "cache_key": parameters["parameters_sha256"],
+            "parameters": parameters,
             "model": self.model,
             "created_at": time.time(),
             "summary": summary,
         }
+        (cache_dir / "summary.parameters.json").write_text(json.dumps(parameters, indent=2), encoding="utf-8")
         (cache_dir / "summary.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     def _extract_output_text(self, data: dict) -> str:

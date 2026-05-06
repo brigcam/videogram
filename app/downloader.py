@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.transcripts import Transcript, parse_subtitle_text
+from app.transcripts import TRANSCRIPT_CACHE_VERSION, Transcript, parse_subtitle_text
 from yt_dlp import YoutubeDL
 
 
@@ -173,6 +173,20 @@ class VideoDownloader:
         request_id: str,
         preferred_langs: tuple[str, ...],
     ) -> Transcript | None:
+        cache_dir = self.cache_dir_for_url(url)
+        cached_transcript = self._load_cached_transcript(cache_dir, preferred_langs)
+        if cached_transcript:
+            logger.info(
+                "request_id=%s transcript_cache_hit url=%s language=%s source=%s chars=%s",
+                request_id,
+                url,
+                cached_transcript.language,
+                cached_transcript.source,
+                len(cached_transcript.text),
+            )
+            self._touch_cache(cache_dir)
+            return cached_transcript
+
         temp_dir = self.download_dir / f"{uuid.uuid4().hex}.transcript.part"
         temp_dir.mkdir(parents=True, exist_ok=True)
         options = {
@@ -216,7 +230,9 @@ class VideoDownloader:
                 source,
                 len(transcript_text),
             )
-            return Transcript(text=transcript_text, language=language, source=source)
+            transcript = Transcript(text=transcript_text, language=language, source=source)
+            self._write_cached_transcript(cache_dir, transcript, preferred_langs)
+            return transcript
         except Exception as exc:
             logger.warning("request_id=%s transcript_extract_failed url=%s error=%s", request_id, url, exc)
             return None
@@ -266,6 +282,38 @@ class VideoDownloader:
         request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read().decode("utf-8", errors="replace")
+
+    def _load_cached_transcript(self, cache_dir: Path, preferred_langs: tuple[str, ...]) -> Transcript | None:
+        metadata_path = cache_dir / "transcript.json"
+        if not metadata_path.exists():
+            return None
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if metadata.get("cache_version") != TRANSCRIPT_CACHE_VERSION:
+            return None
+        if tuple(metadata.get("preferred_langs") or ()) != preferred_langs:
+            return None
+        transcript = Transcript.from_dict(metadata.get("transcript") or {})
+        if not transcript:
+            return None
+        return transcript
+
+    def _write_cached_transcript(
+        self,
+        cache_dir: Path,
+        transcript: Transcript,
+        preferred_langs: tuple[str, ...],
+    ) -> None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        metadata = {
+            "cache_version": TRANSCRIPT_CACHE_VERSION,
+            "created_at": time.time(),
+            "preferred_langs": list(preferred_langs),
+            "transcript": transcript.to_dict(),
+        }
+        (cache_dir / "transcript.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     def _prepare_cookiefile(self, temp_dir: Path, request_id: str) -> Path | None:
         cookie_sources: list[Path] = []

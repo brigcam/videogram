@@ -4,11 +4,30 @@ import re
 from dataclasses import dataclass
 
 
+TRANSCRIPT_CACHE_VERSION = 2
+
+
 @dataclass(frozen=True)
 class Transcript:
     text: str
     language: str
     source: str
+
+    def to_dict(self) -> dict:
+        return {
+            "text": self.text,
+            "language": self.language,
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Transcript | None":
+        text = data.get("text")
+        language = data.get("language")
+        source = data.get("source")
+        if not all(isinstance(value, str) and value for value in (text, language, source)):
+            return None
+        return cls(text=text, language=language, source=source)
 
 
 def clean_transcript(text: str) -> str:
@@ -27,7 +46,7 @@ def parse_subtitle_text(raw_text: str, ext: str) -> str:
     ext = ext.lower()
     if ext == "json3":
         return parse_json3(raw_text)
-    if ext in {"vtt", "srv3", "ttml"}:
+    if ext in {"vtt", "srv3", "ttml", "srt"}:
         return parse_timed_text(raw_text)
     return clean_transcript(raw_text)
 
