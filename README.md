@@ -140,7 +140,7 @@ ALLOWED_CHAT_IDS=-1001234567890,-1009876543210
 In una chat autorizzata, Videogram risponde ai link postati da qualsiasi utente della chat. Se invece qualcuno scrive al bot in privato, viene controllata `ALLOWED_USER_IDS`:
 
 ```env
-ALLOWED_USER_IDS=111111111,123456789
+ALLOWED_USER_IDS=111111111,222222222
 ```
 
 Gli ID delle chat di gruppo o supergruppo sono spesso negativi e iniziano con `-100`. Gli ID utente sono di solito positivi. Se non conosci un ID, lascia temporaneamente le whitelist vuote, manda un messaggio al bot dalla chat o dall'utente interessato e leggi `chat_id=...` e `user_id=...` nei log. Poi aggiorna `.env` e riavvia:
