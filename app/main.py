@@ -1,4 +1,3 @@
-import html
 import logging
 import tempfile
 import time
@@ -10,6 +9,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
+from app.captions import build_video_caption
 from app.config import load_settings
 from app.downloader import DownloadError, TranscriptError, VideoDownloader
 from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
@@ -130,7 +130,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await context.bot.send_chat_action(message.chat_id, ChatAction.UPLOAD_VIDEO)
             downloaded = await downloader.download(link, request_id)
 
-            caption = f'<a href="{html.escape(downloaded.source_url)}">{html.escape(downloaded.title)}</a>'
+            caption = build_video_caption(downloaded.source_url, downloaded.title, downloaded.description)
             upload_started_at = time.perf_counter()
             logger.info(
                 "request_id=%s upload_start cached=%s path=%s size_bytes=%s",
@@ -211,6 +211,8 @@ def save_telegram_video_file_id(downloader: VideoDownloader, downloaded, sent_me
         return
     downloader.save_telegram_file_id(downloaded, file_id)
     logger.info("request_id=%s telegram_file_id_saved cache_dir=%s", request_id, downloaded.cache_dir)
+
+
 
 
 async def maybe_send_summary(

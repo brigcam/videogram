@@ -31,6 +31,7 @@ class DownloadedVideo:
     title: str
     source_url: str
     cache_dir: Path
+    description: str = ""
     cached: bool = False
     delete_after_send: bool = False
     telegram_file_id: str = ""
@@ -180,7 +181,8 @@ class VideoDownloader:
         temp_dir.rename(cache_dir)
         cached_path = cache_dir / path.name
         title = info.get("title") or "Video"
-        self._write_metadata(cache_dir, url, title, cached_path.name)
+        description = info.get("description") or ""
+        self._write_metadata(cache_dir, url, title, description, cached_path.name)
         self._prune_cache(exclude=cache_dir)
         delete_after_send = self._free_disk_percent() < self.min_free_disk_percent
         logger.info(
@@ -200,6 +202,7 @@ class VideoDownloader:
             title=title,
             source_url=url,
             cache_dir=cache_dir,
+            description=description,
             delete_after_send=delete_after_send,
         )
 
@@ -525,15 +528,17 @@ class VideoDownloader:
             title=metadata.get("title") or "Video",
             source_url=url,
             cache_dir=cache_dir,
+            description=metadata.get("description") or "",
             cached=True,
             telegram_file_id=metadata.get("telegram_file_id") or "",
         )
 
-    def _write_metadata(self, cache_dir: Path, url: str, title: str, filename: str) -> None:
+    def _write_metadata(self, cache_dir: Path, url: str, title: str, description: str, filename: str) -> None:
         now = time.time()
         metadata = {
             "source_url": url,
             "title": title,
+            "description": description,
             "filename": filename,
             "created_at": now,
             "last_accessed_at": now,
