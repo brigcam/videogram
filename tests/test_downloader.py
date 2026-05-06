@@ -138,6 +138,27 @@ class DownloaderTests(unittest.TestCase):
             ["https://example.com/one.jpg", "https://example.com/three.webp"],
         )
 
+    def test_selects_largest_thumbnail_url(self) -> None:
+        downloader = VideoDownloader(
+            "/tmp",
+            max_download_bytes=100,
+            max_telegram_upload_bytes=100,
+            min_free_disk_percent=0,
+        )
+
+        self.assertEqual(
+            downloader._select_thumbnail_url(
+                {
+                    "thumbnail": "https://example.com/default.jpg",
+                    "thumbnails": [
+                        {"url": "https://example.com/small.jpg", "width": 120, "height": 90},
+                        {"url": "https://example.com/large.webp", "width": 1280, "height": 720},
+                    ],
+                }
+            ),
+            "https://example.com/large.webp",
+        )
+
     def test_extracts_tiktok_photo_metadata_from_rehydration_json(self) -> None:
         downloader = VideoDownloader(
             "/tmp",

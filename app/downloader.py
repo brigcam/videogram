@@ -288,7 +288,10 @@ class VideoDownloader:
                 f"(size_bytes={size_bytes} max_bytes={self.max_telegram_upload_bytes})."
             )
 
-        thumbnail_path = self._generate_video_thumbnail(path, temp_dir, request_id)
+        thumbnail_url = self._select_thumbnail_url(info)
+        thumbnail_path = self._download_video_thumbnail(thumbnail_url, temp_dir, request_id) if thumbnail_url else None
+        if not thumbnail_path:
+            thumbnail_path = self._generate_video_thumbnail(path, temp_dir, request_id)
         install_paths = (path,) + ((thumbnail_path,) if thumbnail_path else ())
         installed_paths = self._install_cache_files(temp_dir, cache_dir, install_paths)
         cached_path = installed_paths[0]
@@ -328,6 +331,64 @@ class VideoDownloader:
         thumbnail_path = self._generate_video_thumbnail(downloaded.path, downloaded.cache_dir, request_id)
         return thumbnail_path if thumbnail_path and thumbnail_path.exists() else None
 
+    def _select_thumbnail_url(self, info: dict) -> str:
+        candidates: list[dict] = []
+        thumbnail = info.get("thumbnail")
+        if isinstance(thumbnail, str) and thumbnail:
+            candidates.append({"url": thumbnail, "width": 0, "height": 0})
+        thumbnails = info.get("thumbnails") or []
+        if isinstance(thumbnails, list):
+            for entry in thumbnails:
+                if isinstance(entry, dict) and entry.get("url"):
+                    candidates.append(entry)
+        candidates.sort(key=lambda item: (item.get("width") or 0) * (item.get("height") or 0), reverse=True)
+        for candidate in candidates:
+            url = candidate.get("url")
+            if isinstance(url, str) and url.startswith(("http://", "https://")):
+                return url
+        return ""
+
+    def _download_video_thumbnail(self, url: str, output_dir: Path, request_id: str) -> Path | None:
+        source_path = output_dir / f"thumbnail-source{Path(urlparse(url).path).suffix or '.jpg'}"
+        thumbnail_path = output_dir / "thumbnail.jpg"
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                source_path.write_bytes(response.read())
+            command = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(source_path),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale='min(320,iw)':-2",
+                "-q:v",
+                "5",
+                str(thumbnail_path),
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+        except (OSError, urllib.error.URLError, subprocess.SubprocessError) as exc:
+            logger.warning("request_id=%s thumbnail_download_failed url=%s error=%s", request_id, url, exc)
+            source_path.unlink(missing_ok=True)
+            thumbnail_path.unlink(missing_ok=True)
+            return None
+        finally:
+            source_path.unlink(missing_ok=True)
+        if result.returncode != 0 or not self._thumbnail_is_usable(thumbnail_path):
+            logger.warning(
+                "request_id=%s thumbnail_convert_failed url=%s returncode=%s stderr=%s",
+                request_id,
+                url,
+                result.returncode,
+                (result.stderr or "").strip()[-500:],
+            )
+            thumbnail_path.unlink(missing_ok=True)
+            return None
+        logger.info("request_id=%s thumbnail_download_complete url=%s path=%s", request_id, url, thumbnail_path)
+        return thumbnail_path
+
     def _generate_video_thumbnail(self, video_path: Path, output_dir: Path, request_id: str) -> Path | None:
         thumbnail_path = output_dir / "thumbnail.jpg"
         command = [
@@ -350,7 +411,7 @@ class VideoDownloader:
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("request_id=%s thumbnail_generate_failed path=%s error=%s", request_id, video_path, exc)
             return None
-        if result.returncode != 0 or not thumbnail_path.exists() or thumbnail_path.stat().st_size == 0:
+        if result.returncode != 0 or not self._thumbnail_is_usable(thumbnail_path):
             logger.warning(
                 "request_id=%s thumbnail_generate_failed path=%s returncode=%s stderr=%s",
                 request_id,
@@ -360,16 +421,19 @@ class VideoDownloader:
             )
             thumbnail_path.unlink(missing_ok=True)
             return None
+        return thumbnail_path
+
+    def _thumbnail_is_usable(self, thumbnail_path: Path) -> bool:
+        if not thumbnail_path.exists() or thumbnail_path.stat().st_size == 0:
+            return False
         if thumbnail_path.stat().st_size > 200 * 1024:
             logger.warning(
-                "request_id=%s thumbnail_too_large path=%s size_bytes=%s",
-                request_id,
+                "thumbnail_too_large path=%s size_bytes=%s",
                 thumbnail_path,
                 thumbnail_path.stat().st_size,
             )
-            thumbnail_path.unlink(missing_ok=True)
-            return None
-        return thumbnail_path
+            return False
+        return True
 
     def _download_audio_sync(self, url: str, request_id: str) -> DownloadedAudio:
         cache_dir = self.cache_dir_for_url(f"audio:{url}")
