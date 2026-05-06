@@ -171,12 +171,12 @@ async def process_link(message, context: ContextTypes.DEFAULT_TYPE, link: str) -
     status = await message.reply_text("Preparo il contenuto...")
     queued = queue.locked()
     if queued:
-        await status.edit_text("Richiesta in coda...")
+        await safe_status_edit(status, "Richiesta in coda...", request_id, "queue_status")
         logger.info("request_id=%s process_queued url=%s", request_id, link)
 
     async with queue:
         if queued:
-            await status.edit_text("Preparo il contenuto...")
+            await safe_status_edit(status, "Preparo il contenuto...", request_id, "queue_start_status")
         await run_link_job(message, context, downloader, link, request_id, request_started_at, status)
 
 
@@ -204,6 +204,7 @@ async def run_link_job(
 
         caption = build_video_caption(post.source_url, post.title, post.description)
         upload_started_at = time.perf_counter()
+        await safe_status_edit(status, "Contenuto scaricato, carico su Telegram...", request_id, "upload_status")
         await send_downloaded_post(message, downloader, post, caption, request_id)
         logger.info(
             "request_id=%s upload_complete upload_elapsed_ms=%s total_elapsed_ms=%s",
@@ -213,24 +214,41 @@ async def run_link_job(
         )
         await wait_for_summary_status(status, summary_task)
         await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
-        await status.delete()
+        await safe_status_delete(status, request_id)
+    except asyncio.CancelledError:
+        logger.warning("request_id=%s process_cancelled url=%s", request_id, link)
+        record_failed_link(
+            context,
+            request_id,
+            link,
+            "cancelled",
+            RuntimeError("Processing was interrupted while the bot was stopping."),
+            message,
+        )
+        await safe_status_edit(
+            status,
+            f"Operazione interrotta dal riavvio del bot. Riprova il link tra poco.\n\nID richiesta: {request_id}",
+            request_id,
+            "cancelled_status",
+        )
+        raise
     except DownloadError as exc:
         logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
         record_failed_link(context, request_id, link, "download", exc, message)
         user_error = classify_download_error(exc)
-        await status.edit_text(user_error.format(request_id))
+        await safe_status_edit(status, user_error.format(request_id), request_id, "download_error_status")
         await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
     except TelegramError as exc:
         logger.warning("request_id=%s process_upload_failed url=%s error=%s", request_id, link, exc)
         record_failed_link(context, request_id, link, "upload", exc, message)
         user_error = classify_upload_error(exc)
-        await status.edit_text(user_error.format(request_id))
+        await safe_status_edit(status, user_error.format(request_id), request_id, "upload_error_status")
         await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
     except Exception as exc:
         logger.exception("request_id=%s process_unexpected_failed url=%s", request_id, link)
         record_failed_link(context, request_id, link, "unexpected", exc, message)
         user_error = classify_upload_error(exc)
-        await status.edit_text(user_error.format(request_id))
+        await safe_status_edit(status, user_error.format(request_id), request_id, "unexpected_error_status")
         await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
     finally:
         if post and post.delete_after_send:
@@ -251,6 +269,20 @@ def record_failed_link(
         return
     chat_type = message.chat.type if getattr(message, "chat", None) else ""
     recorder.record(request_id=request_id, url=link, stage=stage, error=error, chat_type=chat_type)
+
+
+async def safe_status_edit(status, text: str, request_id: str, action: str) -> None:
+    try:
+        await status.edit_text(text)
+    except TelegramError as exc:
+        logger.warning("request_id=%s %s_failed error=%s", request_id, action, exc)
+
+
+async def safe_status_delete(status, request_id: str) -> None:
+    try:
+        await status.delete()
+    except TelegramError as exc:
+        logger.warning("request_id=%s status_delete_failed error=%s", request_id, exc)
 
 
 async def send_downloaded_post(
