@@ -11,10 +11,23 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("cookies", message.detail)
 
     def test_download_too_large_message(self) -> None:
-        message = classify_download_error(RuntimeError("The downloaded video is larger than the configured limit."))
+        message = classify_download_error(
+            RuntimeError(
+                "The downloaded video is larger than the configured limit "
+                "(size_bytes=629145600 max_bytes=536870912)."
+            )
+        )
 
         self.assertIn("limite", message.title)
         self.assertIn("MAX_DOWNLOAD_MB", message.detail)
+        self.assertIn("600.0 MB", message.detail)
+        self.assertIn("512.0 MB", message.detail)
+
+    def test_ytdlp_too_large_message(self) -> None:
+        message = classify_download_error(RuntimeError("ERROR: File is larger than max-filesize (600.00MiB > 512.00MiB)"))
+
+        self.assertIn("600.0 MB", message.detail)
+        self.assertIn("512.0 MB", message.detail)
 
     def test_telegram_upload_limit_message(self) -> None:
         message = classify_download_error(RuntimeError("The downloaded video is larger than the Telegram upload limit."))

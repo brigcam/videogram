@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 
@@ -84,16 +85,26 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
         )
 
     if "larger than the configured limit" in message or "file is larger than max-filesize" in message:
+        size_detail = format_size_limit_detail(str(error))
+        detail = "Aumenta MAX_DOWNLOAD_MB oppure prova un video piu piccolo."
+        if size_detail:
+            detail = f"{size_detail}\n{detail}"
         return UserErrorMessage(
             "Il video supera il limite configurato.",
-            "Aumenta MAX_DOWNLOAD_MB oppure prova un video piu piccolo.",
+            detail,
         )
 
     if "larger than the telegram upload limit" in message:
+        size_detail = format_size_limit_detail(str(error))
+        detail = (
+            "Il Bot API pubblico accetta upload fino a circa 50 MB. "
+            "Riduci MAX_TELEGRAM_UPLOAD_MB solo per tenere piu margine, oppure prova un video piu piccolo."
+        )
+        if size_detail:
+            detail = f"{size_detail}\n{detail}"
         return UserErrorMessage(
             "Il video supera il limite upload di Telegram.",
-            "Il Bot API pubblico accetta upload fino a circa 50 MB. "
-            "Riduci MAX_TELEGRAM_UPLOAD_MB solo per tenere piu margine, oppure prova un video piu piccolo.",
+            detail,
         )
 
     if "requested format is not available" in message or "no video formats found" in message:
@@ -145,6 +156,70 @@ def classify_upload_error(error: Exception) -> UserErrorMessage:
         "Qualcosa e andato storto durante l'invio del video.",
         "Il download potrebbe essere riuscito, ma Telegram ha restituito un errore. Controlla i log con l'ID qui sotto.",
     )
+
+
+def format_size_limit_detail(raw_message: str) -> str:
+    parsed = parse_size_limit(raw_message)
+    if not parsed:
+        return ""
+    size_bytes, max_bytes = parsed
+    return f"Dimensione video: {format_bytes(size_bytes)}. Limite configurato: {format_bytes(max_bytes)}."
+
+
+def parse_size_limit(raw_message: str) -> tuple[int, int] | None:
+    lower_message = raw_message.lower()
+    key_value_match = re.search(r"size_bytes=(\d+).*?max_(?:download_)?bytes=(\d+)", lower_message)
+    if key_value_match:
+        return int(key_value_match.group(1)), int(key_value_match.group(2))
+
+    ytdlp_match = re.search(
+        r"file is larger than max-filesize\s*\(([^>]+)>\s*([^)]+)\)",
+        raw_message,
+        re.IGNORECASE,
+    )
+    if ytdlp_match:
+        size_bytes = parse_human_size(ytdlp_match.group(1))
+        max_bytes = parse_human_size(ytdlp_match.group(2))
+        if size_bytes is not None and max_bytes is not None:
+            return size_bytes, max_bytes
+
+    return None
+
+
+def parse_human_size(raw_value: str) -> int | None:
+    match = re.search(r"([\d.]+)\s*([kmgt]?i?b|bytes?)", raw_value.strip(), re.IGNORECASE)
+    if not match:
+        return None
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    multipliers = {
+        "b": 1,
+        "byte": 1,
+        "bytes": 1,
+        "kb": 1000,
+        "mb": 1000**2,
+        "gb": 1000**3,
+        "tb": 1000**4,
+        "kib": 1024,
+        "mib": 1024**2,
+        "gib": 1024**3,
+        "tib": 1024**4,
+    }
+    multiplier = multipliers.get(unit)
+    if multiplier is None:
+        return None
+    return int(value * multiplier)
+
+
+def format_bytes(size_bytes: int) -> str:
+    value = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
 
 
 def classify_transcript_error(error: Exception) -> UserErrorMessage:

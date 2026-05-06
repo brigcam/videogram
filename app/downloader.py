@@ -188,7 +188,10 @@ class VideoDownloader:
                 self.max_download_bytes,
                 url,
             )
-            raise DownloadError("The downloaded video is larger than the configured limit.")
+            raise DownloadError(
+                "The downloaded video is larger than the configured limit "
+                f"(size_bytes={size_bytes} max_bytes={self.max_download_bytes})."
+            )
 
         if path.stat().st_size > self.max_telegram_upload_bytes:
             size_bytes = path.stat().st_size
@@ -201,7 +204,10 @@ class VideoDownloader:
                 self.max_telegram_upload_bytes,
                 url,
             )
-            raise DownloadError("The downloaded video is larger than the Telegram upload limit.")
+            raise DownloadError(
+                "The downloaded video is larger than the Telegram upload limit "
+                f"(size_bytes={size_bytes} max_bytes={self.max_telegram_upload_bytes})."
+            )
 
         if cache_dir.exists():
             shutil.rmtree(cache_dir, ignore_errors=True)
