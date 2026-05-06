@@ -4,6 +4,7 @@ import unittest
 import urllib.error
 
 from app.downloader import DownloadError, VideoDownloader
+from app.transcripts import TRANSCRIPT_CACHE_VERSION, Transcript
 
 
 class DownloaderTests(unittest.TestCase):
@@ -63,6 +64,36 @@ class DownloaderTests(unittest.TestCase):
 
             reloaded = downloader._load_cached_video(cache_dir, url)
             self.assertEqual(reloaded.telegram_file_id, "telegram-file-id")
+
+    def test_saves_and_loads_transcript_document_file_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = VideoDownloader(
+                temp_dir,
+                max_download_bytes=100,
+                max_telegram_upload_bytes=100,
+                min_free_disk_percent=0,
+            )
+            cache_dir = downloader.cache_dir_for_url("https://example.com/video")
+            cache_dir.mkdir()
+            preferred_langs = ("it", "en")
+            (cache_dir / "transcript.json").write_text(
+                json.dumps(
+                    {
+                        "cache_version": TRANSCRIPT_CACHE_VERSION,
+                        "preferred_langs": list(preferred_langs),
+                        "transcript": Transcript("ciao", "it", "manual").to_dict(),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            downloader.save_transcript_file_id(cache_dir, preferred_langs, "document-file-id")
+
+            self.assertEqual(downloader.cached_transcript_file_id(cache_dir, preferred_langs), "document-file-id")
+
+            downloader.forget_transcript_file_id(cache_dir, preferred_langs)
+
+            self.assertEqual(downloader.cached_transcript_file_id(cache_dir, preferred_langs), "")
 
 
 if __name__ == "__main__":

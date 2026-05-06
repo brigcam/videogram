@@ -211,6 +211,20 @@ class VideoDownloader:
     def forget_telegram_file_id(self, downloaded: DownloadedVideo) -> None:
         self._update_metadata(downloaded.cache_dir, {"telegram_file_id": ""})
 
+    def cached_transcript_file_id(self, cache_dir: Path, preferred_langs: tuple[str, ...]) -> str:
+        metadata = self._load_cached_transcript_metadata(cache_dir, preferred_langs)
+        if not metadata:
+            return ""
+        return metadata.get("telegram_document_file_id") or ""
+
+    def save_transcript_file_id(self, cache_dir: Path, preferred_langs: tuple[str, ...], file_id: str) -> None:
+        if not file_id:
+            return
+        self._update_cached_transcript_metadata(cache_dir, preferred_langs, {"telegram_document_file_id": file_id})
+
+    def forget_transcript_file_id(self, cache_dir: Path, preferred_langs: tuple[str, ...]) -> None:
+        self._update_cached_transcript_metadata(cache_dir, preferred_langs, {"telegram_document_file_id": ""})
+
     def _extract_transcript_sync(
         self,
         url: str,
@@ -388,6 +402,15 @@ class VideoDownloader:
             return response.read().decode("utf-8", errors="replace")
 
     def _load_cached_transcript(self, cache_dir: Path, preferred_langs: tuple[str, ...]) -> Transcript | None:
+        metadata = self._load_cached_transcript_metadata(cache_dir, preferred_langs)
+        if not metadata:
+            return None
+        transcript = Transcript.from_dict(metadata.get("transcript") or {})
+        if not transcript:
+            return None
+        return transcript
+
+    def _load_cached_transcript_metadata(self, cache_dir: Path, preferred_langs: tuple[str, ...]) -> dict | None:
         metadata_path = cache_dir / "transcript.json"
         if not metadata_path.exists():
             return None
@@ -399,10 +422,7 @@ class VideoDownloader:
             return None
         if tuple(metadata.get("preferred_langs") or ()) != preferred_langs:
             return None
-        transcript = Transcript.from_dict(metadata.get("transcript") or {})
-        if not transcript:
-            return None
-        return transcript
+        return metadata
 
     def _write_cached_transcript(
         self,
@@ -418,6 +438,22 @@ class VideoDownloader:
             "transcript": transcript.to_dict(),
         }
         (cache_dir / "transcript.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    def _update_cached_transcript_metadata(
+        self,
+        cache_dir: Path,
+        preferred_langs: tuple[str, ...],
+        updates: dict,
+    ) -> None:
+        metadata_path = cache_dir / "transcript.json"
+        metadata = self._load_cached_transcript_metadata(cache_dir, preferred_langs)
+        if not metadata:
+            return
+        metadata.update(updates)
+        try:
+            metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        except OSError:
+            pass
 
     def _prepare_cookiefile(self, temp_dir: Path, request_id: str) -> Path | None:
         cookie_sources: list[Path] = []

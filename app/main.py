@@ -261,12 +261,44 @@ async def maybe_send_summary(
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
-    await send_transcript_file(message, downloaded.title, transcript.text, request_id)
+    await send_transcript_file(
+        message,
+        downloader,
+        downloader.cache_dir_for_url(link),
+        transcript_langs,
+        transcript.text,
+        request_id,
+    )
 
 
-async def send_transcript_file(message, title: str, transcript_text: str, request_id: str) -> None:
-    del title
+async def send_transcript_file(
+    message,
+    downloader: VideoDownloader,
+    cache_dir: Path,
+    transcript_langs: tuple[str, ...],
+    transcript_text: str,
+    request_id: str,
+) -> None:
     filename = "transcript.txt"
+    cached_file_id = downloader.cached_transcript_file_id(cache_dir, transcript_langs)
+    if cached_file_id:
+        try:
+            logger.info("request_id=%s transcript_file_id_send_start cache_dir=%s", request_id, cache_dir)
+            sent_message = await message.reply_document(
+                document=cached_file_id,
+                filename=filename,
+                read_timeout=120,
+                write_timeout=120,
+                connect_timeout=30,
+                pool_timeout=30,
+            )
+            logger.info("request_id=%s transcript_file_id_send_complete", request_id)
+            save_transcript_document_file_id(downloader, cache_dir, transcript_langs, sent_message, request_id)
+            return
+        except TelegramError as exc:
+            logger.warning("request_id=%s transcript_file_id_send_failed error=%s", request_id, exc)
+            downloader.forget_transcript_file_id(cache_dir, transcript_langs)
+
     with tempfile.TemporaryDirectory() as temp_dir:
         transcript_path = Path(temp_dir) / filename
         transcript_path.write_text(transcript_text, encoding="utf-8")
@@ -277,7 +309,7 @@ async def send_transcript_file(message, title: str, transcript_text: str, reques
             len(transcript_text),
         )
         with transcript_path.open("rb") as transcript_file:
-            await message.reply_document(
+            sent_message = await message.reply_document(
                 document=transcript_file,
                 filename=filename,
                 read_timeout=120,
@@ -286,6 +318,23 @@ async def send_transcript_file(message, title: str, transcript_text: str, reques
                 pool_timeout=30,
             )
         logger.info("request_id=%s transcript_file_send_complete", request_id)
+        save_transcript_document_file_id(downloader, cache_dir, transcript_langs, sent_message, request_id)
+
+
+def save_transcript_document_file_id(
+    downloader: VideoDownloader,
+    cache_dir: Path,
+    transcript_langs: tuple[str, ...],
+    sent_message,
+    request_id: str,
+) -> None:
+    if not sent_message or not sent_message.document:
+        return
+    file_id = sent_message.document.file_id
+    if not file_id:
+        return
+    downloader.save_transcript_file_id(cache_dir, transcript_langs, file_id)
+    logger.info("request_id=%s transcript_document_file_id_saved cache_dir=%s", request_id, cache_dir)
 
 
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
