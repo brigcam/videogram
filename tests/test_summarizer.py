@@ -30,6 +30,14 @@ class SummarizerCacheTests(unittest.TestCase):
 
         self.assertNotEqual(first._cache_key("same transcript"), second._cache_key("same transcript"))
 
+    def test_summary_cache_depends_on_content_kind(self) -> None:
+        summarizer = OpenAISummarizer("key", "gpt-5.2", "prompt", 20000)
+
+        transcript_parameters = summarizer._summary_parameters("same text", "transcript")
+        description_parameters = summarizer._summary_parameters("same text", "description")
+
+        self.assertNotEqual(transcript_parameters["parameters_sha256"], description_parameters["parameters_sha256"])
+
     def test_writes_summary_parameters_file(self) -> None:
         summarizer = OpenAISummarizer("key", "gpt-5.2", "prompt", 20000)
         parameters = summarizer._summary_parameters("hello")

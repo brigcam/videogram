@@ -153,23 +153,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 int((time.perf_counter() - request_started_at) * 1000),
             )
             await wait_for_summary_status(status, summary_task)
-            await publish_summary_task(message, downloader, link, request_id, summary_task)
+            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
             await status.delete()
         except DownloadError as exc:
             logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
             user_error = classify_download_error(exc)
             await status.edit_text(user_error.format(request_id))
-            await publish_summary_task(message, downloader, link, request_id, summary_task)
+            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
         except TelegramError as exc:
             logger.warning("request_id=%s process_upload_failed url=%s error=%s", request_id, link, exc)
             user_error = classify_upload_error(exc)
             await status.edit_text(user_error.format(request_id))
-            await publish_summary_task(message, downloader, link, request_id, summary_task)
+            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
         except Exception as exc:
             logger.exception("request_id=%s process_unexpected_failed url=%s", request_id, link)
             user_error = classify_upload_error(exc)
             await status.edit_text(user_error.format(request_id))
-            await publish_summary_task(message, downloader, link, request_id, summary_task)
+            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
         finally:
             if post and post.delete_after_send:
                 downloader.remove(post.cache_dir)
@@ -453,10 +453,12 @@ async def wait_for_summary_status(status, summary_task: asyncio.Task[SummaryPipe
 
 async def publish_summary_task(
     message,
+    context: ContextTypes.DEFAULT_TYPE,
     downloader: VideoDownloader,
     link: str,
     request_id: str,
     summary_task: asyncio.Task[SummaryPipelineResult | None] | None,
+    post: DownloadedPost | None = None,
 ) -> None:
     if not summary_task:
         return
@@ -487,10 +489,12 @@ async def publish_summary_task(
         return
 
     if not result.transcript:
-        try:
-            await message.reply_text(f"Non ho trovato una trascrizione disponibile.\n\nID richiesta: {request_id}")
-        except TelegramError as exc:
-            logger.warning("request_id=%s transcript_not_found_publish_failed url=%s error=%s", request_id, link, exc)
+        sent_description_summary = await maybe_send_description_summary(message, context, post, link, request_id)
+        if not sent_description_summary:
+            try:
+                await message.reply_text(f"Non ho trovato una trascrizione disponibile.\n\nID richiesta: {request_id}")
+            except TelegramError as exc:
+                logger.warning("request_id=%s transcript_not_found_publish_failed url=%s error=%s", request_id, link, exc)
         return
 
     if not result.summary:
@@ -512,6 +516,71 @@ async def publish_summary_task(
         )
     except TelegramError as exc:
         logger.warning("request_id=%s summary_publish_failed url=%s error=%s", request_id, link, exc)
+
+
+async def maybe_send_description_summary(
+    message,
+    context: ContextTypes.DEFAULT_TYPE,
+    post: DownloadedPost | None,
+    link: str,
+    request_id: str,
+) -> bool:
+    if not post:
+        return False
+    description = (post.description or post.text or "").strip()
+    if not description:
+        logger.info("request_id=%s description_summary_skipped_empty url=%s", request_id, link)
+        return False
+
+    summarizer: OpenAISummarizer | None = context.application.bot_data.get("summarizer")
+    if not summarizer or not summarizer.enabled:
+        return False
+
+    logger.info(
+        "request_id=%s description_summary_start url=%s chars=%s cache_dir=%s",
+        request_id,
+        link,
+        len(description),
+        post.cache_dir,
+    )
+    try:
+        summary = await summarizer.summarize(
+            post.title or "Post",
+            post.source_url or link,
+            Transcript(description, "und", "description"),
+            post.cache_dir,
+            request_id,
+            content_kind="description",
+        )
+    except SummaryError as exc:
+        logger.warning("request_id=%s description_summary_failed url=%s error=%s", request_id, link, exc)
+        try:
+            await message.reply_text(f"Non ho trovato una trascrizione, e il riassunto della descrizione non e riuscito.\n\nID errore: {request_id}")
+        except TelegramError as telegram_exc:
+            logger.warning("request_id=%s description_summary_error_publish_failed url=%s error=%s", request_id, link, telegram_exc)
+        return True
+
+    if not summary:
+        return False
+
+    try:
+        await message.reply_text(
+            summary_markdown_to_telegram_html(summary.text)[:4096],
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except TelegramError as exc:
+        logger.warning("request_id=%s description_summary_publish_failed url=%s error=%s", request_id, link, exc)
+        return True
+
+    logger.info(
+        "request_id=%s description_summary_complete url=%s cached=%s chars=%s",
+        request_id,
+        link,
+        summary.cached,
+        len(summary.text),
+    )
+    return True
 
 
 async def send_transcript_file(

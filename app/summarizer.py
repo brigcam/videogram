@@ -48,6 +48,7 @@ class OpenAISummarizer:
         transcript: Transcript,
         cache_dir: Path,
         request_id: str,
+        content_kind: str = "transcript",
     ) -> SummaryResult | None:
         if not self.enabled:
             return None
@@ -58,6 +59,7 @@ class OpenAISummarizer:
             transcript,
             cache_dir,
             request_id,
+            content_kind,
         )
 
     def _summarize_sync(
@@ -67,28 +69,31 @@ class OpenAISummarizer:
         transcript: Transcript,
         cache_dir: Path,
         request_id: str,
+        content_kind: str = "transcript",
     ) -> SummaryResult:
         transcript_text = transcript.text[: self.max_transcript_chars]
-        parameters = self._summary_parameters(transcript_text)
+        parameters = self._summary_parameters(transcript_text, content_kind)
         cached = self._load_cached_summary(cache_dir, parameters)
         if cached:
-            logger.info("request_id=%s summary_cache_hit chars=%s", request_id, len(cached))
+            logger.info("request_id=%s summary_cache_hit content_kind=%s chars=%s", request_id, content_kind, len(cached))
             return SummaryResult(cached, cached=True)
 
         logger.info(
-            "request_id=%s summary_start model=%s transcript_chars=%s language=%s source=%s",
+            "request_id=%s summary_start model=%s content_kind=%s content_chars=%s language=%s source=%s",
             request_id,
             self.model,
+            content_kind,
             len(transcript_text),
             transcript.language,
             transcript.source,
         )
+        content_label = "Trascrizione" if content_kind == "transcript" else "Descrizione del post"
         input_text = (
             f"Titolo: {title}\n"
             f"URL: {source_url}\n"
-            f"Lingua trascrizione: {transcript.language}\n"
-            f"Tipo trascrizione: {transcript.source}\n\n"
-            f"Trascrizione:\n{transcript_text}"
+            f"Lingua contenuto: {transcript.language}\n"
+            f"Tipo contenuto: {transcript.source}\n\n"
+            f"{content_label}:\n{transcript_text}"
         )
         payload = {
             "model": self.model,
@@ -130,13 +135,14 @@ class OpenAISummarizer:
         )
         return SummaryResult(summary)
 
-    def _summary_parameters(self, transcript_text: str) -> dict:
+    def _summary_parameters(self, transcript_text: str, content_kind: str = "transcript") -> dict:
         parameters = {
             "model": self.model,
             "prompt": self.prompt,
             "max_transcript_chars": self.max_transcript_chars,
+            "content_kind": content_kind,
             "openai_api_key_sha256": hashlib.sha256(self.api_key.encode("utf-8")).hexdigest(),
-            "transcript_sha256": hashlib.sha256(transcript_text.encode("utf-8")).hexdigest(),
+            "content_sha256": hashlib.sha256(transcript_text.encode("utf-8")).hexdigest(),
         }
         parameters["parameters_sha256"] = hashlib.sha256(
             json.dumps(parameters, sort_keys=True).encode("utf-8")
