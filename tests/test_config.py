@@ -31,9 +31,11 @@ class ConfigTests(unittest.TestCase):
         settings = Settings(telegram_bot_token="token")
 
         self.assertEqual(settings.max_concurrent_jobs, 2)
+        self.assertEqual(settings.site_concurrent_jobs, 1)
         self.assertEqual(settings.failed_links_file, "/var/log/videogram/failed-links.jsonl")
         self.assertEqual(settings.usage_check_interval_minutes, 60)
         self.assertEqual(settings.usage_alert_step_percent, 10)
+        self.assertEqual(settings.cookie_allowed_user_ids, frozenset())
         self.assertEqual(settings.hetzner_monthly_traffic_tb, 20.0)
         self.assertEqual(settings.openai_monthly_budget_usd, 0.0)
 

@@ -11,6 +11,7 @@ class Settings:
     allowed_chat_ids: frozenset[int] = frozenset()
     allowed_user_ids: frozenset[int] = frozenset()
     usage_allowed_user_ids: frozenset[int] = frozenset()
+    cookie_allowed_user_ids: frozenset[int] = frozenset()
     usage_report_user_id: int = 0
     usage_check_interval_minutes: int = 60
     usage_alert_step_percent: int = 10
@@ -21,7 +22,7 @@ class Settings:
     openai_admin_key: str = ""
     openai_monthly_budget_usd: float = 0.0
     openai_api_key: str = ""
-    openai_summary_model: str = "gpt-5.2"
+    openai_summary_model: str = "gpt-5-mini"
     openai_summary_prompt: str = (
         "Riassumi il contenuto in italiano, in modo utile e conciso. "
         "Evidenzia i punti principali e conserva eventuali dettagli concreti importanti."
@@ -33,6 +34,7 @@ class Settings:
     max_telegram_upload_mb: int = 48
     min_free_disk_percent: float = 5.0
     max_concurrent_jobs: int = 2
+    site_concurrent_jobs: int = 1
     log_level: str = "INFO"
     log_file: str = "/var/log/videogram/videogram.log"
     log_max_mb: int = 10
@@ -67,6 +69,7 @@ def load_settings() -> Settings:
         allowed_chat_ids=parse_allowed_chat_ids(os.getenv("ALLOWED_CHAT_IDS", "")),
         allowed_user_ids=parse_allowed_user_ids(os.getenv("ALLOWED_USER_IDS", "")),
         usage_allowed_user_ids=parse_allowed_user_ids(os.getenv("USAGE_ALLOWED_USER_IDS", "")),
+        cookie_allowed_user_ids=parse_allowed_user_ids(os.getenv("COOKIE_ALLOWED_USER_IDS", "")),
         usage_report_user_id=parse_optional_int(os.getenv("USAGE_REPORT_USER_ID", "")),
         usage_check_interval_minutes=max(1, int(os.getenv("USAGE_CHECK_INTERVAL_MINUTES", "60"))),
         usage_alert_step_percent=min(100, max(1, int(os.getenv("USAGE_ALERT_STEP_PERCENT", "10")))),
@@ -90,6 +93,7 @@ def load_settings() -> Settings:
         max_telegram_upload_mb=int(os.getenv("MAX_TELEGRAM_UPLOAD_MB", "48")),
         min_free_disk_percent=float(os.getenv("MIN_FREE_DISK_PERCENT", "5")),
         max_concurrent_jobs=max(1, int(os.getenv("MAX_CONCURRENT_JOBS", "2"))),
+        site_concurrent_jobs=max(1, int(os.getenv("SITE_CONCURRENT_JOBS", "1"))),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         log_file=os.getenv("LOG_FILE", "/var/log/videogram/videogram.log"),
         log_max_mb=int(os.getenv("LOG_MAX_MB", "10")),

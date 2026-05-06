@@ -63,6 +63,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `ALLOWED_CHAT_IDS` | vuota | Lista di gruppi/supergruppi Telegram autorizzati, separati da virgola. Vuota = tutte le chat di gruppo autorizzate |
 | `ALLOWED_USER_IDS` | vuota | Lista di utenti Telegram autorizzati a usare il bot in privato, separati da virgola. Vuota = tutti gli utenti autorizzati in privato |
 | `USAGE_ALLOWED_USER_IDS` | vuota | Lista separata di utenti autorizzati a usare `/usage` in privato. Vuota = nessun utente autorizzato |
+| `COOKIE_ALLOWED_USER_IDS` | vuota | Lista separata di utenti autorizzati a usare `/cookie` in privato. Vuota = eredita `USAGE_ALLOWED_USER_IDS` |
 | `USAGE_REPORT_USER_ID` | vuota | User ID Telegram a cui inviare alert periodici di utilizzo in privato |
 | `USAGE_CHECK_INTERVAL_MINUTES` | `60` | Ogni quanti minuti controllare le soglie di utilizzo |
 | `USAGE_ALERT_STEP_PERCENT` | `10` | Soglia incrementale traffico Hetzner per alert: 10 = 10%, 20%, 30%... |
@@ -82,6 +83,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `DOWNLOAD_DIR` | `/tmp/videogram-downloads` | Cartella temporanea nel container |
 | `MIN_FREE_DISK_PERCENT` | `5` | Spazio libero minimo da mantenere nella cache locale |
 | `MAX_CONCURRENT_JOBS` | `2` | Numero massimo di link processati contemporaneamente; gli altri restano in coda |
+| `SITE_CONCURRENT_JOBS` | `1` | Numero massimo di link processati contemporaneamente per singolo sito, sopra la coda globale |
 | `LOG_LEVEL` | `INFO` | Livello log Python |
 | `LOG_FILE` | `/var/log/videogram/videogram.log` | File log persistente nel container |
 | `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
@@ -93,7 +95,7 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 Per i video, Videogram salva anche una miniatura `thumbnail.jpg` nella cache e la passa a Telegram durante l'upload, cosi i client hanno un'anteprima anche quando il file non parte automaticamente. Se la piattaforma espone gia una thumbnail, usa quella; altrimenti estrae un frame dal video.
 
-`MAX_CONCURRENT_JOBS` limita il numero di link processati in parallelo. Se arrivano piu link insieme, Videogram risponde subito e mette le richieste eccedenti in coda.
+`MAX_CONCURRENT_JOBS` limita il numero di link processati in parallelo. `SITE_CONCURRENT_JOBS` limita in parallelo anche ogni singolo sito, per esempio un solo download Instagram alla volta. Se arrivano piu link insieme, Videogram risponde subito e mette le richieste eccedenti nella coda generale o nella coda del sito.
 
 `/usage` funziona solo in chat privata e solo per gli ID elencati in `USAGE_ALLOWED_USER_IDS`. Se configuri `USAGE_REPORT_USER_ID`, Videogram controlla periodicamente traffico Hetzner e costi OpenAI. Manda un alert privato ogni volta che viene superato un nuovo multiplo di `USAGE_ALERT_STEP_PERCENT`; per OpenAI serve anche impostare `OPENAI_MONTHLY_BUDGET_USD`.
 
@@ -186,7 +188,17 @@ Poi aggiungi al tuo `.env`:
 YTDLP_COOKIES_DIR=/cookies
 ```
 
-La cartella `./cookies` è montata in sola lettura, ignorata da Git e copiata in una posizione temporanea a ogni download, così `yt-dlp` non modifica il file originale. Dopo aver modificato `.env`:
+La cartella `./cookies` è ignorata da Git e copiata in una posizione temporanea a ogni download, così `yt-dlp` non modifica il file originale. È montata in scrittura solo per permettere agli utenti autorizzati di aggiornare i cookie via Telegram.
+
+Per aggiornare un file cookie da Telegram, usa il bot in privato:
+
+```text
+/cookie instagram <contenuto del cookies.txt Netscape>
+```
+
+Oppure invia `/cookie instagram` in reply a un file `.txt` o a un messaggio che contiene i cookie in formato Netscape. Il comando funziona solo per `COOKIE_ALLOWED_USER_IDS`; se questa variabile è vuota, eredita `USAGE_ALLOWED_USER_IDS`.
+
+Dopo aver modificato `.env`:
 
 ```bash
 docker compose up -d --build

@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import os
+import re
 import tempfile
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from telegram import InputMediaPhoto, Update
 from telegram.constants import ChatAction, ParseMode
@@ -27,6 +30,19 @@ from app.usage import UsageMonitor, format_usage_report, usage_alert_loop
 logger = logging.getLogger(__name__)
 
 
+COOKIE_SITE_FILENAMES = {
+    "youtube": "youtube.txt",
+    "reddit": "reddit.txt",
+    "instagram": "instagram.txt",
+    "facebook": "facebook.txt",
+    "threads": "threads.txt",
+    "x": "x.txt",
+    "twitter": "x.txt",
+    "tiktok": "tiktok.txt",
+}
+MAX_COOKIE_TEXT_BYTES = 1024 * 1024
+
+
 @dataclass(frozen=True)
 class SummaryPipelineResult:
     transcript_langs: tuple[str, ...]
@@ -34,6 +50,35 @@ class SummaryPipelineResult:
     summary: SummaryResult | None = None
     transcript_error: TranscriptError | None = None
     summary_error: SummaryError | None = None
+
+
+class SiteLimiter:
+    def __init__(self, max_concurrent_per_site: int) -> None:
+        self.max_concurrent_per_site = max(1, max_concurrent_per_site)
+        self._queues: dict[str, asyncio.Semaphore] = {}
+
+    def site_for_url(self, url: str) -> str:
+        host = urlparse(url).netloc.lower()
+        if "youtube.com" in host or "youtu.be" in host:
+            return "youtube"
+        if "instagram.com" in host:
+            return "instagram"
+        if "facebook.com" in host or "fb.watch" in host:
+            return "facebook"
+        if "threads." in host:
+            return "threads"
+        if "reddit.com" in host or "redd.it" in host:
+            return "reddit"
+        if "tiktok.com" in host:
+            return "tiktok"
+        if host == "x.com" or host.endswith(".x.com") or "twitter.com" in host:
+            return "x"
+        return "other"
+
+    def queue_for_site(self, site: str) -> asyncio.Semaphore:
+        if site not in self._queues:
+            self._queues[site] = asyncio.Semaphore(self.max_concurrent_per_site)
+        return self._queues[site]
 
 
 def group_chat_is_allowed(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
@@ -48,6 +93,13 @@ def private_user_is_allowed(context: ContextTypes.DEFAULT_TYPE, user_id: int | N
 
 def usage_user_is_allowed(context: ContextTypes.DEFAULT_TYPE, user_id: int | None) -> bool:
     allowed_user_ids: frozenset[int] = context.application.bot_data.get("usage_allowed_user_ids", frozenset())
+    return bool(user_id and user_id in allowed_user_ids)
+
+
+def cookie_user_is_allowed(context: ContextTypes.DEFAULT_TYPE, user_id: int | None) -> bool:
+    allowed_user_ids: frozenset[int] = context.application.bot_data.get("cookie_allowed_user_ids", frozenset())
+    if not allowed_user_ids:
+        allowed_user_ids = context.application.bot_data.get("usage_allowed_user_ids", frozenset())
     return bool(user_id and user_id in allowed_user_ids)
 
 
@@ -140,6 +192,149 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await status.edit_text(format_usage_report(snapshot))
 
 
+async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    user_id = update.effective_user.id if update.effective_user else None
+    if not message or not chat:
+        return
+    if chat.type != "private" or not cookie_user_is_allowed(context, user_id):
+        logger.warning("cookie_command_rejected chat_id=%s chat_type=%s user_id=%s", chat.id, chat.type, user_id)
+        if chat.type == "private":
+            await message.reply_text("Non sei autorizzato ad aggiornare i cookie.")
+        return
+
+    command_text = message.text or message.caption or ""
+    try:
+        site, inline_cookie_text = parse_cookie_command_text(command_text)
+    except ValueError as exc:
+        await message.reply_text(str(exc))
+        return
+
+    try:
+        cookie_text = await extract_cookie_command_payload(message, context, inline_cookie_text)
+        normalized_cookie_text = normalize_netscape_cookie_text(cookie_text)
+        cookie_path = write_cookie_file(context, site, normalized_cookie_text)
+    except ValueError as exc:
+        await message.reply_text(str(exc))
+        return
+    except OSError as exc:
+        logger.warning("cookie_update_failed site=%s error=%s", site, exc)
+        await message.reply_text(
+            "Non sono riuscito a salvare i cookie. Controlla che la cartella cookies sia montata in scrittura."
+        )
+        return
+    except TelegramError as exc:
+        logger.warning("cookie_download_failed site=%s error=%s", site, exc)
+        await message.reply_text("Non sono riuscito a leggere il file cookie da Telegram.")
+        return
+
+    logger.info(
+        "cookie_update_complete site=%s path=%s bytes=%s",
+        site,
+        cookie_path,
+        len(normalized_cookie_text.encode("utf-8")),
+    )
+    await message.reply_text(f"Cookie aggiornati per {site}. Le prossime richieste useranno il nuovo file.")
+
+
+def parse_cookie_command_text(text: str) -> tuple[str, str]:
+    parts = (text or "").strip().split(maxsplit=2)
+    if not parts:
+        raise ValueError(cookie_command_usage())
+    command = parts[0].split("@", 1)[0].lower()
+    if command != "/cookie":
+        raise ValueError(cookie_command_usage())
+    if len(parts) < 2:
+        raise ValueError(cookie_command_usage())
+    site = parts[1].strip().lower()
+    if site not in COOKIE_SITE_FILENAMES:
+        raise ValueError(
+            "Sito non supportato. Usa uno tra: " + ", ".join(sorted(COOKIE_SITE_FILENAMES))
+        )
+    return site, parts[2] if len(parts) >= 3 else ""
+
+
+def cookie_command_usage() -> str:
+    return (
+        "Uso: /cookie sito contenuto_cookie\n"
+        "Oppure invia /cookie sito in reply a un file .txt o a un messaggio con cookie Netscape.\n"
+        "Esempio: /cookie instagram"
+    )
+
+
+async def extract_cookie_command_payload(message, context: ContextTypes.DEFAULT_TYPE, inline_cookie_text: str) -> str:
+    if inline_cookie_text.strip():
+        return inline_cookie_text
+
+    target_message = message.reply_to_message or message
+    document = target_message.document
+    if document:
+        if document.file_size and document.file_size > MAX_COOKIE_TEXT_BYTES:
+            raise ValueError("Il file cookie e' troppo grande. Limite massimo: 1 MB.")
+        telegram_file = await document.get_file()
+        cookie_bytes = bytes(await telegram_file.download_as_bytearray())
+        if len(cookie_bytes) > MAX_COOKIE_TEXT_BYTES:
+            raise ValueError("Il file cookie e' troppo grande. Limite massimo: 1 MB.")
+        try:
+            return cookie_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Il file cookie deve essere testo UTF-8 in formato Netscape.") from exc
+
+    if target_message is not message:
+        text = target_message.text or target_message.caption or ""
+        if text.strip():
+            return text
+
+    raise ValueError(cookie_command_usage())
+
+
+def normalize_netscape_cookie_text(cookie_text: str) -> str:
+    if "\x00" in cookie_text:
+        raise ValueError("Cookie non validi: il testo contiene byte null.")
+
+    normalized = cookie_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        raise ValueError("Cookie vuoti.")
+    if len(normalized.encode("utf-8")) > MAX_COOKIE_TEXT_BYTES:
+        raise ValueError("Cookie troppo grandi. Limite massimo: 1 MB.")
+
+    lines = normalized.split("\n")
+    has_cookie_row = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        fields = stripped.split("\t")
+        if len(fields) < 7:
+            fields = re.split(r"\s+", stripped, maxsplit=6)
+        if len(fields) < 7:
+            raise ValueError("Cookie non validi: formato Netscape atteso con 7 colonne.")
+        has_cookie_row = True
+
+    if not has_cookie_row:
+        raise ValueError("Cookie non validi: non ho trovato righe cookie.")
+
+    if not lines[0].startswith("# Netscape HTTP Cookie File"):
+        normalized = "# Netscape HTTP Cookie File\n" + normalized
+    return normalized.rstrip() + "\n"
+
+
+def write_cookie_file(context: ContextTypes.DEFAULT_TYPE, site: str, cookie_text: str) -> Path:
+    cookies_dir_raw = context.application.bot_data.get("ytdlp_cookies_dir", "")
+    if not cookies_dir_raw:
+        raise ValueError("YTDLP_COOKIES_DIR non e' configurato.")
+    cookies_dir = Path(cookies_dir_raw)
+    filename = COOKIE_SITE_FILENAMES[site]
+    cookies_dir.mkdir(parents=True, exist_ok=True)
+    cookie_path = cookies_dir / filename
+    temp_path = cookies_dir / f".{filename}.{uuid.uuid4().hex}.tmp"
+    temp_path.write_text(cookie_text, encoding="utf-8")
+    os.chmod(temp_path, 0o600)
+    os.replace(temp_path, cookie_path)
+    return cookie_path
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if not message:
@@ -166,18 +361,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def process_link(message, context: ContextTypes.DEFAULT_TYPE, link: str) -> None:
     downloader: VideoDownloader = context.application.bot_data["downloader"]
     queue: asyncio.Semaphore = context.application.bot_data["processing_queue"]
+    site_limiter: SiteLimiter = context.application.bot_data["site_limiter"]
+    site = site_limiter.site_for_url(link)
+    site_queue = site_limiter.queue_for_site(site)
     request_id = uuid.uuid4().hex[:12]
     request_started_at = time.perf_counter()
     status = await message.reply_text("Preparo il contenuto...")
-    queued = queue.locked()
-    if queued:
-        await safe_status_edit(status, "Richiesta in coda...", request_id, "queue_status")
-        logger.info("request_id=%s process_queued url=%s", request_id, link)
+    site_queued = site_queue.locked()
+    global_queued = queue.locked()
+    if site_queued:
+        await safe_status_edit(status, f"Richiesta in coda per {site}...", request_id, "site_queue_status")
+        logger.info("request_id=%s process_site_queued site=%s url=%s", request_id, site, link)
+    elif global_queued:
+        await safe_status_edit(status, "Richiesta in coda generale...", request_id, "queue_status")
+        logger.info("request_id=%s process_queued site=%s url=%s", request_id, site, link)
 
-    async with queue:
-        if queued:
-            await safe_status_edit(status, "Preparo il contenuto...", request_id, "queue_start_status")
-        await run_link_job(message, context, downloader, link, request_id, request_started_at, status)
+    async with site_queue:
+        if site_queued and queue.locked():
+            await safe_status_edit(status, "Turno del sito arrivato, attendo uno slot globale...", request_id, "global_queue_status")
+        async with queue:
+            if site_queued or global_queued:
+                await safe_status_edit(status, "Preparo il contenuto...", request_id, "queue_start_status")
+            await run_link_job(message, context, downloader, link, request_id, request_started_at, status)
 
 
 async def run_link_job(
@@ -883,9 +1088,12 @@ def main() -> None:
     application.bot_data["allowed_chat_ids"] = settings.allowed_chat_ids
     application.bot_data["allowed_user_ids"] = settings.allowed_user_ids
     application.bot_data["usage_allowed_user_ids"] = settings.usage_allowed_user_ids
+    application.bot_data["cookie_allowed_user_ids"] = settings.cookie_allowed_user_ids
     application.bot_data["usage_report_user_id"] = settings.usage_report_user_id
     application.bot_data["usage_check_interval_minutes"] = settings.usage_check_interval_minutes
     application.bot_data["processing_queue"] = asyncio.Semaphore(settings.max_concurrent_jobs)
+    application.bot_data["site_limiter"] = SiteLimiter(settings.site_concurrent_jobs)
+    application.bot_data["ytdlp_cookies_dir"] = settings.ytdlp_cookies_dir
     application.bot_data["failure_recorder"] = FailureRecorder(Path(settings.failed_links_file))
     application.bot_data["usage_monitor"] = UsageMonitor(
         hetzner_api_token=settings.hetzner_api_token,
@@ -898,6 +1106,8 @@ def main() -> None:
     )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("usage", usage_command))
+    application.add_handler(CommandHandler("cookie", cookie_command))
+    application.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/cookie(?:@\w+)?(?:\s|$)"), cookie_command))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(handle_error)
@@ -908,8 +1118,9 @@ def main() -> None:
         "telegram_api_base_url_configured=%s telegram_local_mode=%s "
         "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s chat_whitelist_enabled=%s "
         "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
-        "summary_model=%s summary_langs=%s max_concurrent_jobs=%s concurrent_updates=%s failed_links_file=%s "
-        "usage_allowed_user_count=%s usage_report_enabled=%s hetzner_usage_configured=%s "
+        "summary_model=%s summary_langs=%s max_concurrent_jobs=%s site_concurrent_jobs=%s "
+        "concurrent_updates=%s failed_links_file=%s "
+        "usage_allowed_user_count=%s cookie_allowed_user_count=%s usage_report_enabled=%s hetzner_usage_configured=%s "
         "openai_costs_configured=%s openai_budget_configured=%s",
         settings.download_dir,
         settings.max_download_mb,
@@ -929,9 +1140,11 @@ def main() -> None:
         settings.openai_summary_model,
         ",".join(settings.summary_transcript_langs),
         settings.max_concurrent_jobs,
+        settings.site_concurrent_jobs,
         settings.max_concurrent_jobs * 4,
         settings.failed_links_file,
         len(settings.usage_allowed_user_ids),
+        len(settings.cookie_allowed_user_ids),
         bool(settings.usage_report_user_id),
         bool(settings.hetzner_api_token and settings.hetzner_server_id),
         bool(settings.openai_admin_key),
