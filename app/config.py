@@ -22,10 +22,12 @@ class Settings:
     max_download_mb: int = 512
     max_telegram_upload_mb: int = 48
     min_free_disk_percent: float = 5.0
+    max_concurrent_jobs: int = 2
     log_level: str = "INFO"
     log_file: str = "/var/log/videogram/videogram.log"
     log_max_mb: int = 10
     log_backup_count: int = 5
+    failed_links_file: str = "/var/log/videogram/failed-links.jsonl"
     ytdlp_cookies_file: str = ""
     ytdlp_cookies_dir: str = ""
 
@@ -67,10 +69,12 @@ def load_settings() -> Settings:
         max_download_mb=int(os.getenv("MAX_DOWNLOAD_MB", "512")),
         max_telegram_upload_mb=int(os.getenv("MAX_TELEGRAM_UPLOAD_MB", "48")),
         min_free_disk_percent=float(os.getenv("MIN_FREE_DISK_PERCENT", "5")),
+        max_concurrent_jobs=max(1, int(os.getenv("MAX_CONCURRENT_JOBS", "2"))),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         log_file=os.getenv("LOG_FILE", "/var/log/videogram/videogram.log"),
         log_max_mb=int(os.getenv("LOG_MAX_MB", "10")),
         log_backup_count=int(os.getenv("LOG_BACKUP_COUNT", "5")),
+        failed_links_file=os.getenv("FAILED_LINKS_FILE", "/var/log/videogram/failed-links.jsonl"),
         ytdlp_cookies_file=os.getenv("YTDLP_COOKIES_FILE", "").strip(),
         ytdlp_cookies_dir=os.getenv("YTDLP_COOKIES_DIR", "").strip(),
     )

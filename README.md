@@ -71,14 +71,18 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `MAX_TELEGRAM_UPLOAD_MB` | `48` | Limite massimo del file inviato tramite Bot API pubblico. Deve restare sotto i 50 MB di Telegram |
 | `DOWNLOAD_DIR` | `/tmp/videogram-downloads` | Cartella temporanea nel container |
 | `MIN_FREE_DISK_PERCENT` | `5` | Spazio libero minimo da mantenere nella cache locale |
+| `MAX_CONCURRENT_JOBS` | `2` | Numero massimo di link processati contemporaneamente; gli altri restano in coda |
 | `LOG_LEVEL` | `INFO` | Livello log Python |
 | `LOG_FILE` | `/var/log/videogram/videogram.log` | File log persistente nel container |
 | `LOG_MAX_MB` | `10` | Dimensione massima di ogni file log prima della rotazione |
 | `LOG_BACKUP_COUNT` | `5` | Numero di file log ruotati da conservare |
+| `FAILED_LINKS_FILE` | `/var/log/videogram/failed-links.jsonl` | Storico JSONL dei link falliti, utile per debug e miglioramento matcher |
 | `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per piattaforme che richiedono login/verifica |
 | `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` da unire per `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt`, `x.txt` e `tiktok.txt` |
 
 I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
+
+`MAX_CONCURRENT_JOBS` limita il numero di link processati in parallelo. Se arrivano piu link insieme, Videogram risponde subito e mette le richieste eccedenti in coda.
 
 Il limite `MAX_TELEGRAM_UPLOAD_MB` tiene margine rispetto al limite pubblico di upload dei bot Telegram, pari a circa 50 MB. Se un media in cache supera questo limite, Videogram lo rifiuta prima dell'upload invece di far arrivare un errore `413` da Telegram. Con il Bot API server locale puoi alzare questo valore, per esempio a `1900`.
 
@@ -189,9 +193,9 @@ docker compose exec videogram tail -f /var/log/videogram/videogram.log
 
 Ogni link processato ha un `request_id`, utile per seguire download, cache, upload ed eventuali errori nello stesso flusso.
 
+I fallimenti vengono salvati anche in `./logs/failed-links.jsonl`, uno per riga, con URL normalizzato, piattaforma, fase fallita, tipo errore e `request_id`.
+
 ## Roadmap naturale
 
 - Aggiungere altri siti creando nuovi normalizzatori in `app/links.py`.
 - Migliorare la scelta formato/qualità in `app/downloader.py`.
-- Aggiungere una coda per evitare troppi download simultanei nelle chat grandi.
-- Salvare metriche o storico minimo dei link falliti per migliorare i matcher.

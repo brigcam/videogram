@@ -15,6 +15,7 @@ from app.captions import build_video_caption
 from app.config import load_settings
 from app.downloader import DownloadedPost, DownloadError, TranscriptError, VideoDownloader
 from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
+from app.failures import FailureRecorder
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
 from app.summarizer import OpenAISummarizer, SummaryError, SummaryResult
@@ -125,55 +126,98 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         message.message_id,
         len(links),
     )
-    downloader: VideoDownloader = context.application.bot_data["downloader"]
     for link in links[:3]:
-        request_id = uuid.uuid4().hex[:12]
-        request_started_at = time.perf_counter()
-        status = await message.reply_text("Preparo il contenuto...")
-        summary_task = start_summary_task(context, downloader, link, request_id)
-        post = None
-        try:
-            logger.info(
-                "request_id=%s process_start chat_id=%s message_id=%s url=%s",
-                request_id,
-                message.chat_id,
-                message.message_id,
-                link,
-            )
-            await context.bot.send_chat_action(message.chat_id, ChatAction.UPLOAD_VIDEO)
-            post = await downloader.download_post(link, request_id)
+        await process_link(message, context, link)
 
-            caption = build_video_caption(post.source_url, post.title, post.description)
-            upload_started_at = time.perf_counter()
-            await send_downloaded_post(message, downloader, post, caption, request_id)
-            logger.info(
-                "request_id=%s upload_complete upload_elapsed_ms=%s total_elapsed_ms=%s",
-                request_id,
-                int((time.perf_counter() - upload_started_at) * 1000),
-                int((time.perf_counter() - request_started_at) * 1000),
-            )
-            await wait_for_summary_status(status, summary_task)
-            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
-            await status.delete()
-        except DownloadError as exc:
-            logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
-            user_error = classify_download_error(exc)
-            await status.edit_text(user_error.format(request_id))
-            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
-        except TelegramError as exc:
-            logger.warning("request_id=%s process_upload_failed url=%s error=%s", request_id, link, exc)
-            user_error = classify_upload_error(exc)
-            await status.edit_text(user_error.format(request_id))
-            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
-        except Exception as exc:
-            logger.exception("request_id=%s process_unexpected_failed url=%s", request_id, link)
-            user_error = classify_upload_error(exc)
-            await status.edit_text(user_error.format(request_id))
-            await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
-        finally:
-            if post and post.delete_after_send:
-                downloader.remove(post.cache_dir)
-                logger.info("request_id=%s removed_after_send path=%s", request_id, post.cache_dir)
+
+async def process_link(message, context: ContextTypes.DEFAULT_TYPE, link: str) -> None:
+    downloader: VideoDownloader = context.application.bot_data["downloader"]
+    queue: asyncio.Semaphore = context.application.bot_data["processing_queue"]
+    request_id = uuid.uuid4().hex[:12]
+    request_started_at = time.perf_counter()
+    status = await message.reply_text("Preparo il contenuto...")
+    queued = queue.locked()
+    if queued:
+        await status.edit_text("Richiesta in coda...")
+        logger.info("request_id=%s process_queued url=%s", request_id, link)
+
+    async with queue:
+        if queued:
+            await status.edit_text("Preparo il contenuto...")
+        await run_link_job(message, context, downloader, link, request_id, request_started_at, status)
+
+
+async def run_link_job(
+    message,
+    context: ContextTypes.DEFAULT_TYPE,
+    downloader: VideoDownloader,
+    link: str,
+    request_id: str,
+    request_started_at: float,
+    status,
+) -> None:
+    summary_task = start_summary_task(context, downloader, link, request_id)
+    post = None
+    try:
+        logger.info(
+            "request_id=%s process_start chat_id=%s message_id=%s url=%s",
+            request_id,
+            message.chat_id,
+            message.message_id,
+            link,
+        )
+        await context.bot.send_chat_action(message.chat_id, ChatAction.UPLOAD_VIDEO)
+        post = await downloader.download_post(link, request_id)
+
+        caption = build_video_caption(post.source_url, post.title, post.description)
+        upload_started_at = time.perf_counter()
+        await send_downloaded_post(message, downloader, post, caption, request_id)
+        logger.info(
+            "request_id=%s upload_complete upload_elapsed_ms=%s total_elapsed_ms=%s",
+            request_id,
+            int((time.perf_counter() - upload_started_at) * 1000),
+            int((time.perf_counter() - request_started_at) * 1000),
+        )
+        await wait_for_summary_status(status, summary_task)
+        await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
+        await status.delete()
+    except DownloadError as exc:
+        logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
+        record_failed_link(context, request_id, link, "download", exc, message)
+        user_error = classify_download_error(exc)
+        await status.edit_text(user_error.format(request_id))
+        await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
+    except TelegramError as exc:
+        logger.warning("request_id=%s process_upload_failed url=%s error=%s", request_id, link, exc)
+        record_failed_link(context, request_id, link, "upload", exc, message)
+        user_error = classify_upload_error(exc)
+        await status.edit_text(user_error.format(request_id))
+        await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
+    except Exception as exc:
+        logger.exception("request_id=%s process_unexpected_failed url=%s", request_id, link)
+        record_failed_link(context, request_id, link, "unexpected", exc, message)
+        user_error = classify_upload_error(exc)
+        await status.edit_text(user_error.format(request_id))
+        await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
+    finally:
+        if post and post.delete_after_send:
+            downloader.remove(post.cache_dir)
+            logger.info("request_id=%s removed_after_send path=%s", request_id, post.cache_dir)
+
+
+def record_failed_link(
+    context: ContextTypes.DEFAULT_TYPE,
+    request_id: str,
+    link: str,
+    stage: str,
+    error: Exception,
+    message,
+) -> None:
+    recorder: FailureRecorder | None = context.application.bot_data.get("failure_recorder")
+    if not recorder:
+        return
+    chat_type = message.chat.type if getattr(message, "chat", None) else ""
+    recorder.record(request_id=request_id, url=link, stage=stage, error=error, chat_type=chat_type)
 
 
 async def send_downloaded_post(
@@ -718,6 +762,7 @@ def main() -> None:
         settings.openai_summary_max_transcript_chars,
     )
     application_builder = Application.builder().token(settings.telegram_bot_token)
+    application_builder.concurrent_updates(settings.max_concurrent_jobs * 4)
     if settings.telegram_api_base_url:
         application_builder.base_url(settings.telegram_api_base_url)
     if settings.telegram_api_file_base_url:
@@ -730,6 +775,8 @@ def main() -> None:
     application.bot_data["summary_transcript_langs"] = settings.summary_transcript_langs
     application.bot_data["allowed_chat_ids"] = settings.allowed_chat_ids
     application.bot_data["allowed_user_ids"] = settings.allowed_user_ids
+    application.bot_data["processing_queue"] = asyncio.Semaphore(settings.max_concurrent_jobs)
+    application.bot_data["failure_recorder"] = FailureRecorder(Path(settings.failed_links_file))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -741,7 +788,7 @@ def main() -> None:
         "telegram_api_base_url_configured=%s telegram_local_mode=%s "
         "log_file=%s log_max_mb=%s log_backup_count=%s ytdlp_cookies_configured=%s chat_whitelist_enabled=%s "
         "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
-        "summary_model=%s summary_langs=%s",
+        "summary_model=%s summary_langs=%s max_concurrent_jobs=%s concurrent_updates=%s failed_links_file=%s",
         settings.download_dir,
         settings.max_download_mb,
         settings.max_telegram_upload_mb,
@@ -759,6 +806,9 @@ def main() -> None:
         summarizer.enabled,
         settings.openai_summary_model,
         ",".join(settings.summary_transcript_langs),
+        settings.max_concurrent_jobs,
+        settings.max_concurrent_jobs * 4,
+        settings.failed_links_file,
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

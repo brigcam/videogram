@@ -27,6 +27,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.max_download_bytes, 512 * 1024 * 1024)
         self.assertEqual(settings.max_telegram_upload_bytes, 48 * 1024 * 1024)
 
+    def test_queue_and_failure_defaults(self) -> None:
+        settings = Settings(telegram_bot_token="token")
+
+        self.assertEqual(settings.max_concurrent_jobs, 2)
+        self.assertEqual(settings.failed_links_file, "/var/log/videogram/failed-links.jsonl")
+
     def test_parse_bool(self) -> None:
         self.assertTrue(parse_bool("true"))
         self.assertTrue(parse_bool("1"))
