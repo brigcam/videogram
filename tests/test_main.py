@@ -1,8 +1,11 @@
+from pathlib import Path
 import unittest
 
+from app.downloader import DownloadedAudio, DownloadedPhoto, DownloadedPost
 from app.main import (
     SiteLimiter,
     cookie_command_usage,
+    description_summary_message,
     normalize_netscape_cookie_text,
     parse_cookie_command_text,
 )
@@ -40,6 +43,32 @@ class MainTests(unittest.TestCase):
     def test_normalize_netscape_cookie_text_rejects_invalid_rows(self) -> None:
         with self.assertRaisesRegex(ValueError, "formato Netscape"):
             normalize_netscape_cookie_text("not enough fields")
+
+    def test_description_summary_for_audio_mentions_missing_transcript(self) -> None:
+        post = DownloadedPost(
+            "Audio",
+            "https://example.com/audio",
+            Path("/tmp/audio-cache"),
+            audio=DownloadedAudio(Path("/tmp/audio.m4a"), "Audio", "https://example.com/audio", Path("/tmp/audio-cache")),
+        )
+
+        message = description_summary_message(post, "- **Punto**: testo")
+
+        self.assertIn("Non ho trovato una trascrizione disponibile", message)
+        self.assertIn("<b>Punto</b>", message)
+
+    def test_description_summary_for_photo_has_no_transcript_note(self) -> None:
+        post = DownloadedPost(
+            "Foto",
+            "https://example.com/photo",
+            Path("/tmp/photo-cache"),
+            photos=(DownloadedPhoto(Path("/tmp/photo.jpg")),),
+        )
+
+        message = description_summary_message(post, "- **Punto**: testo")
+
+        self.assertNotIn("trascrizione", message)
+        self.assertIn("<b>Punto</b>", message)
 
 
 if __name__ == "__main__":

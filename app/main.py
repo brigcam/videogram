@@ -932,9 +932,10 @@ async def maybe_send_description_summary(
     if not summary:
         return False
 
+    summary_text = description_summary_message(post, summary.text)
     try:
         await message.reply_text(
-            summary_markdown_to_telegram_html(summary.text)[:4096],
+            summary_text[:4096],
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
@@ -950,6 +951,17 @@ async def maybe_send_description_summary(
         len(summary.text),
     )
     return True
+
+
+def description_summary_message(post: DownloadedPost, summary_text: str) -> str:
+    summary_html = summary_markdown_to_telegram_html(summary_text)
+    if not (post.video or post.audio):
+        return summary_html
+    note = (
+        "<i>Non ho trovato una trascrizione disponibile per questo media; "
+        "questo e' il riassunto del testo di accompagnamento.</i>"
+    )
+    return f"{note}\n\n{summary_html}"
 
 
 async def send_transcript_file(
