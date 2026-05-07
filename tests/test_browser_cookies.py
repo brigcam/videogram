@@ -2,7 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.browser_cookies import cookies_to_netscape, instagram_blocked_state, load_netscape_cookies
+from app.browser_cookies import (
+    SUPPORTED_BROWSER_COOKIE_SITES,
+    cookies_to_netscape,
+    domain_matches,
+    instagram_blocked_state,
+    load_netscape_cookies,
+    normalize_browser_cookie_site,
+    site_has_session_cookie,
+)
 
 
 class BrowserCookieTests(unittest.TestCase):
@@ -10,6 +18,24 @@ class BrowserCookieTests(unittest.TestCase):
         self.assertEqual(instagram_blocked_state("https://www.instagram.com/accounts/login/"), "login")
         self.assertEqual(instagram_blocked_state("https://www.instagram.com/challenge/"), "challenge")
         self.assertEqual(instagram_blocked_state("https://www.instagram.com/"), "")
+
+    def test_supports_cookie_sites_used_by_downloader(self) -> None:
+        self.assertEqual(
+            SUPPORTED_BROWSER_COOKIE_SITES,
+            {"youtube", "reddit", "instagram", "facebook", "threads", "x", "tiktok"},
+        )
+        self.assertEqual(normalize_browser_cookie_site("twitter"), "x")
+
+    def test_domain_matching_handles_subdomains(self) -> None:
+        self.assertTrue(domain_matches(".www.youtube.com", ("youtube.com",)))
+        self.assertTrue(domain_matches(".google.com", ("google.com",)))
+        self.assertFalse(domain_matches(".example.com", ("youtube.com",)))
+
+    def test_site_has_session_cookie_checks_known_names(self) -> None:
+        cookies = [{"name": "auth_token", "value": "abc"}]
+
+        self.assertTrue(site_has_session_cookie(cookies, ("auth_token",)))
+        self.assertFalse(site_has_session_cookie(cookies, ("sessionid",)))
 
     def test_converts_cookies_to_netscape(self) -> None:
         text = cookies_to_netscape(

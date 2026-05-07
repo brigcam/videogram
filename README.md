@@ -200,13 +200,13 @@ Per aggiornare un file cookie da Telegram, usa il bot in privato:
 
 Oppure invia `/cookie instagram` in reply a un file `.txt` o a un messaggio che contiene i cookie in formato Netscape. Il comando funziona solo per `COOKIE_ALLOWED_USER_IDS`; se questa variabile è vuota, eredita `USAGE_ALLOWED_USER_IDS`.
 
-Per provare a rinfrescare i cookie Instagram da una sessione browser persistente, usa in privato:
+Per provare a rinfrescare i cookie da una sessione browser persistente, usa in privato:
 
 ```text
 /cookies_refresh instagram
 ```
 
-Il comando apre Chromium headless con il profilo salvato in `./browser-profiles/instagram`, importa gli eventuali cookie correnti da `./cookies/instagram.txt` e, se la sessione risulta valida, riscrive `instagram.txt` con i cookie aggiornati. Se Instagram chiede login, challenge o checkpoint, il bot non automatizza password/2FA e ti avvisa.
+Il comando supporta `youtube`, `reddit`, `instagram`, `facebook`, `threads`, `x`/`twitter` e `tiktok`. Apre Chromium headless con un profilo salvato in `./browser-profiles/<sito>`, importa gli eventuali cookie correnti da `./cookies/<sito>.txt` e, se la sessione risulta valida, riscrive il file cookie con i valori aggiornati. Se il sito chiede login, challenge o checkpoint, il bot non automatizza password/2FA e ti avvisa.
 
 Dopo aver modificato `.env`:
 

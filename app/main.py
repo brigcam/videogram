@@ -14,7 +14,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from app.browser_cookies import BrowserCookieRefresher, SUPPORTED_BROWSER_COOKIE_SITES
+from app.browser_cookies import BrowserCookieRefresher, SUPPORTED_BROWSER_COOKIE_SITES, normalize_browser_cookie_site
 from app.captions import build_video_caption
 from app.config import load_settings
 from app.downloader import DownloadedPost, DownloadError, TranscriptError, VideoDownloader
@@ -303,7 +303,7 @@ def parse_cookies_refresh_command_text(text: str) -> str:
     command = parts[0].split("@", 1)[0].lower()
     if command != "/cookies_refresh":
         raise ValueError("Uso: /cookies_refresh sito")
-    site = parts[1].strip().lower()
+    site = normalize_browser_cookie_site(parts[1])
     if site not in SUPPORTED_BROWSER_COOKIE_SITES:
         raise ValueError(
             "Refresh browser non supportato per questo sito. Supportati: "

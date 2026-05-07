@@ -35,10 +35,11 @@ class MainTests(unittest.TestCase):
 
     def test_parse_cookies_refresh_command(self) -> None:
         self.assertEqual(parse_cookies_refresh_command_text("/cookies_refresh instagram"), "instagram")
+        self.assertEqual(parse_cookies_refresh_command_text("/cookies_refresh twitter"), "x")
 
     def test_parse_cookies_refresh_command_rejects_unknown_site(self) -> None:
         with self.assertRaisesRegex(ValueError, "non supportato"):
-            parse_cookies_refresh_command_text("/cookies_refresh youtube")
+            parse_cookies_refresh_command_text("/cookies_refresh example")
 
     def test_normalize_netscape_cookie_text_adds_header(self) -> None:
         cookie = normalize_netscape_cookie_text(
