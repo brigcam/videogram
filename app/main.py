@@ -578,7 +578,7 @@ async def process_link(message, context: ContextTypes.DEFAULT_TYPE, link: str) -
         async with queue:
             if site_queued or global_queued:
                 await safe_status_edit(status, "Preparo il contenuto...", request_id, "queue_start_status")
-            await run_link_job(message, context, downloader, link, request_id, request_started_at, status)
+            await run_link_job(message, context, downloader, link, site, request_id, request_started_at, status)
 
 
 async def run_link_job(
@@ -586,6 +586,7 @@ async def run_link_job(
     context: ContextTypes.DEFAULT_TYPE,
     downloader: VideoDownloader,
     link: str,
+    site: str,
     request_id: str,
     request_started_at: float,
     status,
@@ -607,7 +608,7 @@ async def run_link_job(
         upload_started_at = time.perf_counter()
         await safe_status_edit(status, "Contenuto scaricato, carico su Telegram...", request_id, "upload_status")
         await send_downloaded_post(message, downloader, post, caption, request_id)
-        clear_cookie_alert(context, site_limiter.site_for_url(link))
+        clear_cookie_alert(context, site)
         logger.info(
             "request_id=%s upload_complete upload_elapsed_ms=%s total_elapsed_ms=%s",
             request_id,
@@ -638,7 +639,7 @@ async def run_link_job(
         logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
         record_failed_link(context, request_id, link, "download", exc, message)
         user_error = classify_download_error(exc)
-        await notify_cookie_download_failure_once(context, site_limiter.site_for_url(link), link, request_id, exc)
+        await notify_cookie_download_failure_once(context, site, link, request_id, exc)
         await safe_status_edit(status, user_error.format(request_id), request_id, "download_error_status")
         await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
     except TelegramError as exc:

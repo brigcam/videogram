@@ -1,4 +1,5 @@
 from pathlib import Path
+import inspect
 import unittest
 
 from app.downloader import DownloadedAudio, DownloadedPhoto, DownloadedPost
@@ -10,6 +11,7 @@ from app.main import (
     normalize_netscape_cookie_text,
     parse_cookies_refresh_command_text,
     parse_cookie_command_text,
+    run_link_job,
 )
 
 
@@ -30,6 +32,9 @@ class MainTests(unittest.TestCase):
         self.assertEqual(limiter.site_for_url("https://www.instagram.com/reel/DTgaWBUDlyZ/"), "instagram")
         self.assertEqual(limiter.site_for_url("https://youtu.be/abc12345"), "youtube")
         self.assertEqual(limiter.site_for_url("https://vm.tiktok.com/ZNRps4Evs/"), "tiktok")
+
+    def test_run_link_job_does_not_reference_outer_site_limiter(self) -> None:
+        self.assertNotIn("site_limiter", inspect.getsource(run_link_job))
 
     def test_parse_cookie_command_accepts_bot_username_and_payload(self) -> None:
         site, payload = parse_cookie_command_text("/cookie@VideogramBot instagram # Netscape HTTP Cookie File")
