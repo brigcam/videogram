@@ -12,14 +12,14 @@ class VideoCaptionTests(unittest.TestCase):
         )
 
         self.assertIn(">Titolo completo</a>", caption)
-        self.assertIn("<blockquote>Prima riga\nSeconda riga</blockquote>", caption)
+        self.assertIn("<blockquote expandable>Prima riga\nSeconda riga</blockquote>", caption)
         self.assertIn("a=1&amp;b=2", caption)
 
     def test_trims_description_to_caption_limit(self) -> None:
         caption = build_video_caption("https://example.com/video", "Titolo", "x" * 5000)
 
         self.assertLessEqual(len(caption), VIDEO_CAPTION_LIMIT)
-        self.assertIn("<blockquote>", caption)
+        self.assertIn("<blockquote expandable>", caption)
         self.assertIn("...", caption)
 
 

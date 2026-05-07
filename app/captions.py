@@ -21,7 +21,7 @@ def build_video_caption(source_url: str, title: str, description: str = "") -> s
         return full_title_caption
 
     def caption_with_description(raw_description: str) -> str:
-        return f"{full_title_caption}\n\n<blockquote>{html.escape(raw_description)}</blockquote>"
+        return f"{full_title_caption}\n\n<blockquote expandable>{html.escape(raw_description)}</blockquote>"
 
     full_caption = caption_with_description(description)
     if len(full_caption) <= VIDEO_CAPTION_LIMIT:
