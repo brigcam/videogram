@@ -34,8 +34,9 @@ class MainTests(unittest.TestCase):
         self.assertIn("reply", cookie_command_usage())
 
     def test_parse_cookies_refresh_command(self) -> None:
-        self.assertEqual(parse_cookies_refresh_command_text("/cookies_refresh instagram"), "instagram")
-        self.assertEqual(parse_cookies_refresh_command_text("/cookies_refresh twitter"), "x")
+        self.assertEqual(parse_cookies_refresh_command_text("/cookies_refresh instagram"), ("instagram",))
+        self.assertEqual(parse_cookies_refresh_command_text("/cookie_refresh twitter"), ("x",))
+        self.assertEqual(parse_cookies_refresh_command_text("/cookie_refresh all"), ("all",))
 
     def test_parse_cookies_refresh_command_rejects_unknown_site(self) -> None:
         with self.assertRaisesRegex(ValueError, "non supportato"):

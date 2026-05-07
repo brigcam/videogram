@@ -12,6 +12,7 @@ class Settings:
     allowed_user_ids: frozenset[int] = frozenset()
     usage_allowed_user_ids: frozenset[int] = frozenset()
     cookie_allowed_user_ids: frozenset[int] = frozenset()
+    cookie_alert_user_id: int = 0
     usage_report_user_id: int = 0
     usage_check_interval_minutes: int = 60
     usage_alert_step_percent: int = 10
@@ -72,6 +73,7 @@ def load_settings() -> Settings:
         allowed_user_ids=parse_allowed_user_ids(os.getenv("ALLOWED_USER_IDS", "")),
         usage_allowed_user_ids=parse_allowed_user_ids(os.getenv("USAGE_ALLOWED_USER_IDS", "")),
         cookie_allowed_user_ids=parse_allowed_user_ids(os.getenv("COOKIE_ALLOWED_USER_IDS", "")),
+        cookie_alert_user_id=parse_optional_int(os.getenv("COOKIE_ALERT_USER_ID", "")),
         usage_report_user_id=parse_optional_int(os.getenv("USAGE_REPORT_USER_ID", "")),
         usage_check_interval_minutes=max(1, int(os.getenv("USAGE_CHECK_INTERVAL_MINUTES", "60"))),
         usage_alert_step_percent=min(100, max(1, int(os.getenv("USAGE_ALERT_STEP_PERCENT", "10")))),

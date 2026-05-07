@@ -131,6 +131,24 @@ def classify_download_error(error: Exception) -> UserErrorMessage:
     )
 
 
+def is_cookie_related_download_error(error: Exception) -> bool:
+    message = str(error).lower()
+    cookie_markers = (
+        "sign in to confirm",
+        "not a bot",
+        "account authentication is required",
+        "login required",
+        "authentication",
+        "cookies",
+        "private video",
+        "video is private",
+        "age",
+        "restricted",
+        "confirm",
+    )
+    return any(marker in message for marker in cookie_markers)
+
+
 def classify_upload_error(error: Exception) -> UserErrorMessage:
     message = str(error).lower()
 

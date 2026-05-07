@@ -18,7 +18,7 @@ from app.browser_cookies import BrowserCookieRefresher, SUPPORTED_BROWSER_COOKIE
 from app.captions import build_video_caption
 from app.config import load_settings
 from app.downloader import DownloadedPost, DownloadError, TranscriptError, VideoDownloader
-from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
+from app.errors import classify_download_error, classify_transcript_error, classify_upload_error, is_cookie_related_download_error
 from app.failures import FailureRecorder
 from app.links import extract_supported_links
 from app.logging_config import configure_logging
@@ -236,6 +236,7 @@ async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         cookie_path,
         len(normalized_cookie_text.encode("utf-8")),
     )
+    clear_cookie_alert(context, site)
     await message.reply_text(f"Cookie aggiornati per {site}. Le prossime richieste useranno il nuovo file.")
 
 
@@ -252,7 +253,7 @@ async def cookies_refresh_command(update: Update, context: ContextTypes.DEFAULT_
         return
 
     try:
-        site = parse_cookies_refresh_command_text(message.text or "")
+        sites = parse_cookies_refresh_command_text(message.text or "")
     except ValueError as exc:
         await message.reply_text(str(exc))
         return
@@ -263,7 +264,55 @@ async def cookies_refresh_command(update: Update, context: ContextTypes.DEFAULT_
         return
 
     request_id = uuid.uuid4().hex[:12]
+    if sites == ("all",):
+        await refresh_all_cookie_sites(message, context, refresher, request_id)
+        return
+
+    site = sites[0]
     status = await message.reply_text(f"Provo a rinfrescare i cookie {site} con il browser headless...")
+    await refresh_cookie_site(status, context, refresher, site, request_id)
+
+
+async def refresh_all_cookie_sites(message, context: ContextTypes.DEFAULT_TYPE, refresher: BrowserCookieRefresher, request_id: str) -> None:
+    sites = tuple(sorted(SUPPORTED_BROWSER_COOKIE_SITES))
+    status = await message.reply_text(
+        "Provo a rinfrescare i cookie di tutti i siti supportati con il browser headless..."
+    )
+    results: list[str] = []
+    for index, site in enumerate(sites, start=1):
+        await safe_status_edit(
+            status,
+            f"Refresh cookie in corso ({index}/{len(sites)}): {site}",
+            request_id,
+            "cookies_refresh_all_progress_status",
+        )
+        site_request_id = f"{request_id}-{site}"
+        result = await refresher.refresh(site, site_request_id)
+        if not result.ok:
+            detail = result.message
+            if result.current_url:
+                detail += f" URL: {result.current_url}"
+            results.append(f"- {site}: errore - {detail}")
+            continue
+        try:
+            normalized_cookie_text = normalize_netscape_cookie_text(result.cookie_text)
+            cookie_path = write_cookie_file(context, site, normalized_cookie_text)
+        except (ValueError, OSError) as exc:
+            logger.warning("request_id=%s browser_cookie_save_failed site=%s error=%s", site_request_id, site, exc)
+            results.append(f"- {site}: errore salvataggio - {exc}")
+            continue
+        clear_cookie_alert(context, site)
+        results.append(f"- {site}: ok ({result.cookie_count} cookie, {cookie_path.name})")
+
+    await safe_status_edit(
+        status,
+        "Refresh cookie completato.\n" + "\n".join(results) + f"\n\nID richiesta: {request_id}",
+        request_id,
+        "cookies_refresh_all_complete_status",
+    )
+
+
+async def refresh_cookie_site(status, context: ContextTypes.DEFAULT_TYPE, refresher: BrowserCookieRefresher, site: str, request_id: str) -> None:
     result = await refresher.refresh(site, request_id)
     if not result.ok:
         detail = result.message
@@ -291,25 +340,29 @@ async def cookies_refresh_command(update: Update, context: ContextTypes.DEFAULT_
         request_id,
         "cookies_refresh_complete_status",
     )
+    clear_cookie_alert(context, site)
 
 
-def parse_cookies_refresh_command_text(text: str) -> str:
+def parse_cookies_refresh_command_text(text: str) -> tuple[str, ...]:
     parts = (text or "").strip().split(maxsplit=1)
     if len(parts) < 2:
         raise ValueError(
-            "Uso: /cookies_refresh sito\n"
-            "Per ora il refresh browser supporta: " + ", ".join(sorted(SUPPORTED_BROWSER_COOKIE_SITES))
+            "Uso: /cookie_refresh sito oppure /cookie_refresh all\n"
+            "Il refresh browser supporta: " + ", ".join(sorted(SUPPORTED_BROWSER_COOKIE_SITES))
         )
     command = parts[0].split("@", 1)[0].lower()
-    if command != "/cookies_refresh":
-        raise ValueError("Uso: /cookies_refresh sito")
-    site = normalize_browser_cookie_site(parts[1])
+    if command not in {"/cookie_refresh", "/cookies_refresh"}:
+        raise ValueError("Uso: /cookie_refresh sito oppure /cookie_refresh all")
+    raw_site = parts[1].strip().lower()
+    if raw_site == "all":
+        return ("all",)
+    site = normalize_browser_cookie_site(raw_site)
     if site not in SUPPORTED_BROWSER_COOKIE_SITES:
         raise ValueError(
             "Refresh browser non supportato per questo sito. Supportati: "
             + ", ".join(sorted(SUPPORTED_BROWSER_COOKIE_SITES))
         )
-    return site
+    return (site,)
 
 
 def parse_cookie_command_text(text: str) -> tuple[str, str]:
@@ -490,6 +543,7 @@ async def run_link_job(
         upload_started_at = time.perf_counter()
         await safe_status_edit(status, "Contenuto scaricato, carico su Telegram...", request_id, "upload_status")
         await send_downloaded_post(message, downloader, post, caption, request_id)
+        clear_cookie_alert(context, site_limiter.site_for_url(link))
         logger.info(
             "request_id=%s upload_complete upload_elapsed_ms=%s total_elapsed_ms=%s",
             request_id,
@@ -520,6 +574,7 @@ async def run_link_job(
         logger.warning("request_id=%s process_download_failed url=%s error=%s", request_id, link, exc)
         record_failed_link(context, request_id, link, "download", exc, message)
         user_error = classify_download_error(exc)
+        await notify_cookie_download_failure_once(context, site_limiter.site_for_url(link), link, request_id, exc)
         await safe_status_edit(status, user_error.format(request_id), request_id, "download_error_status")
         await publish_summary_task(message, context, downloader, link, request_id, summary_task, post)
     except TelegramError as exc:
@@ -553,6 +608,45 @@ def record_failed_link(
         return
     chat_type = message.chat.type if getattr(message, "chat", None) else ""
     recorder.record(request_id=request_id, url=link, stage=stage, error=error, chat_type=chat_type)
+
+
+async def notify_cookie_download_failure_once(
+    context: ContextTypes.DEFAULT_TYPE,
+    site: str,
+    link: str,
+    request_id: str,
+    error: Exception,
+) -> None:
+    if not is_cookie_related_download_error(error):
+        return
+    site = normalize_browser_cookie_site(site)
+    if site not in SUPPORTED_BROWSER_COOKIE_SITES:
+        return
+    alert_user_id: int = context.application.bot_data.get("cookie_alert_user_id", 0)
+    if not alert_user_id:
+        return
+    active_alerts: set[str] = context.application.bot_data.setdefault("active_cookie_alert_sites", set())
+    if site in active_alerts:
+        logger.info("request_id=%s cookie_alert_suppressed site=%s", request_id, site)
+        return
+    active_alerts.add(site)
+    text = (
+        f"Possibile problema cookie per {site}.\n"
+        "Un download e fallito con un errore che sembra legato a login, sessione, verifica o cookie scaduti.\n\n"
+        f"Link: {link}\n"
+        f"ID errore: {request_id}\n\n"
+        f"Prova in privato: /cookie_refresh {site}"
+    )
+    try:
+        await context.bot.send_message(alert_user_id, text)
+        logger.warning("request_id=%s cookie_alert_sent site=%s user_id=%s", request_id, site, alert_user_id)
+    except TelegramError as exc:
+        logger.warning("request_id=%s cookie_alert_send_failed site=%s user_id=%s error=%s", request_id, site, alert_user_id, exc)
+
+
+def clear_cookie_alert(context: ContextTypes.DEFAULT_TYPE, site: str) -> None:
+    active_alerts: set[str] = context.application.bot_data.setdefault("active_cookie_alert_sites", set())
+    active_alerts.discard(normalize_browser_cookie_site(site))
 
 
 async def safe_status_edit(status, text: str, request_id: str, action: str) -> None:
@@ -1205,6 +1299,8 @@ def main() -> None:
     application.bot_data["allowed_user_ids"] = settings.allowed_user_ids
     application.bot_data["usage_allowed_user_ids"] = settings.usage_allowed_user_ids
     application.bot_data["cookie_allowed_user_ids"] = settings.cookie_allowed_user_ids
+    application.bot_data["cookie_alert_user_id"] = settings.cookie_alert_user_id
+    application.bot_data["active_cookie_alert_sites"] = set()
     application.bot_data["usage_report_user_id"] = settings.usage_report_user_id
     application.bot_data["usage_check_interval_minutes"] = settings.usage_check_interval_minutes
     application.bot_data["processing_queue"] = asyncio.Semaphore(settings.max_concurrent_jobs)
@@ -1225,6 +1321,7 @@ def main() -> None:
     application.add_handler(CommandHandler("usage", usage_command))
     private_cookie_filter = filters.ChatType.PRIVATE
     application.add_handler(CommandHandler("cookie", cookie_command, filters=private_cookie_filter))
+    application.add_handler(CommandHandler("cookie_refresh", cookies_refresh_command, filters=private_cookie_filter))
     application.add_handler(CommandHandler("cookies_refresh", cookies_refresh_command, filters=private_cookie_filter))
     application.add_handler(
         MessageHandler(
@@ -1244,7 +1341,8 @@ def main() -> None:
         "allowed_chat_count=%s user_whitelist_enabled=%s allowed_user_count=%s summaries_enabled=%s "
         "summary_model=%s summary_langs=%s max_concurrent_jobs=%s site_concurrent_jobs=%s "
         "concurrent_updates=%s failed_links_file=%s "
-        "usage_allowed_user_count=%s cookie_allowed_user_count=%s usage_report_enabled=%s hetzner_usage_configured=%s "
+        "usage_allowed_user_count=%s cookie_allowed_user_count=%s cookie_alert_enabled=%s "
+        "usage_report_enabled=%s hetzner_usage_configured=%s "
         "openai_costs_configured=%s openai_budget_configured=%s browser_profile_dir=%s",
         settings.download_dir,
         settings.max_download_mb,
@@ -1269,6 +1367,7 @@ def main() -> None:
         settings.failed_links_file,
         len(settings.usage_allowed_user_ids),
         len(settings.cookie_allowed_user_ids),
+        bool(settings.cookie_alert_user_id),
         bool(settings.usage_report_user_id),
         bool(settings.hetzner_api_token and settings.hetzner_server_id),
         bool(settings.openai_admin_key),

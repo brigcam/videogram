@@ -1,6 +1,6 @@
 import unittest
 
-from app.errors import classify_download_error, classify_transcript_error, classify_upload_error
+from app.errors import classify_download_error, classify_transcript_error, classify_upload_error, is_cookie_related_download_error
 
 
 class ErrorMessageTests(unittest.TestCase):
@@ -9,6 +9,8 @@ class ErrorMessageTests(unittest.TestCase):
 
         self.assertIn("anti-bot", message.title)
         self.assertIn("cookies", message.detail)
+        self.assertTrue(is_cookie_related_download_error(RuntimeError("Sign in to confirm you're not a bot")))
+        self.assertFalse(is_cookie_related_download_error(RuntimeError("Unsupported URL")))
 
     def test_download_too_large_message(self) -> None:
         message = classify_download_error(

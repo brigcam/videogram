@@ -63,7 +63,8 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `ALLOWED_CHAT_IDS` | vuota | Lista di gruppi/supergruppi Telegram autorizzati, separati da virgola. Vuota = tutte le chat di gruppo autorizzate |
 | `ALLOWED_USER_IDS` | vuota | Lista di utenti Telegram autorizzati a usare il bot in privato, separati da virgola. Vuota = tutti gli utenti autorizzati in privato |
 | `USAGE_ALLOWED_USER_IDS` | vuota | Lista separata di utenti autorizzati a usare `/usage` in privato. Vuota = nessun utente autorizzato |
-| `COOKIE_ALLOWED_USER_IDS` | vuota | Lista separata di utenti autorizzati a usare `/cookie` in privato. Vuota = eredita `USAGE_ALLOWED_USER_IDS` |
+| `COOKIE_ALLOWED_USER_IDS` | vuota | Lista separata di utenti autorizzati a usare `/cookie` e `/cookie_refresh` in privato. Vuota = eredita `USAGE_ALLOWED_USER_IDS` |
+| `COOKIE_ALERT_USER_ID` | vuota | User ID Telegram a cui inviare un alert privato quando un download fallisce per probabile problema cookie. Invia un solo alert per sito finche il problema non viene risolto |
 | `USAGE_REPORT_USER_ID` | vuota | User ID Telegram a cui inviare alert periodici di utilizzo in privato |
 | `USAGE_CHECK_INTERVAL_MINUTES` | `60` | Ogni quanti minuti controllare le soglie di utilizzo |
 | `USAGE_ALERT_STEP_PERCENT` | `10` | Soglia incrementale traffico Hetzner per alert: 10 = 10%, 20%, 30%... |
@@ -203,10 +204,11 @@ Oppure invia `/cookie instagram` in reply a un file `.txt` o a un messaggio che 
 Per provare a rinfrescare i cookie da una sessione browser persistente, usa in privato:
 
 ```text
-/cookies_refresh instagram
+/cookie_refresh instagram
+/cookie_refresh all
 ```
 
-Il comando supporta `youtube`, `reddit`, `instagram`, `facebook`, `threads`, `x`/`twitter` e `tiktok`. Apre Chromium headless con un profilo salvato in `./browser-profiles/<sito>`, importa gli eventuali cookie correnti da `./cookies/<sito>.txt` e, se la sessione risulta valida, riscrive il file cookie con i valori aggiornati. Se il sito chiede login, challenge o checkpoint, il bot non automatizza password/2FA e ti avvisa.
+Il comando supporta `youtube`, `reddit`, `instagram`, `facebook`, `threads`, `x`/`twitter` e `tiktok`; `all` li prova tutti in sequenza. Apre Chromium headless con un profilo salvato in `./browser-profiles/<sito>`, importa gli eventuali cookie correnti da `./cookies/<sito>.txt` e, se la sessione risulta valida, riscrive il file cookie con i valori aggiornati. Se il sito chiede login, challenge o checkpoint, il bot non automatizza password/2FA e ti avvisa. L'alias vecchio `/cookies_refresh` resta disponibile.
 
 Dopo aver modificato `.env`:
 
