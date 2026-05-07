@@ -166,6 +166,70 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    user_id = update.effective_user.id if update.effective_user else None
+    if not message or not chat:
+        return
+    if chat.type != "private":
+        return
+    if not await ensure_access_allowed(update, context):
+        return
+
+    logger.info(
+        "help_command chat_id=%s user_id=%s message_id=%s",
+        chat.id,
+        user_id,
+        message.message_id,
+    )
+    await message.reply_text(build_help_text(context, user_id))
+
+
+def build_help_text(context: ContextTypes.DEFAULT_TYPE, user_id: int | None) -> str:
+    supported_sites = ", ".join(sorted(SUPPORTED_BROWSER_COOKIE_SITES))
+    lines = [
+        "Comandi Videogram",
+        "",
+        "/start - Mostra il messaggio iniziale.",
+        "/help - Mostra questo elenco.",
+        "",
+        "Uso normale:",
+        "Inviami un link supportato in privato o in una chat autorizzata: lo scarico e lo ripubblico come contenuto nativo Telegram.",
+        "",
+        "Siti con cookie gestiti:",
+        supported_sites,
+    ]
+
+    if usage_user_is_allowed(context, user_id):
+        lines.extend(
+            [
+                "",
+                "Statistiche:",
+                "/usage - Mostra traffico Hetzner e costi OpenAI configurati.",
+            ]
+        )
+
+    if cookie_user_is_allowed(context, user_id):
+        lines.extend(
+            [
+                "",
+                "Cookie:",
+                "/cookie sito contenuto_cookie - Aggiorna i cookie Netscape per un sito.",
+                "/cookie sito - Usalo in reply a un file .txt o a un messaggio con cookie Netscape.",
+                "/cookie_refresh sito - Prova a rinfrescare i cookie con Chromium headless.",
+                "/cookie_refresh all - Prova a rinfrescare i cookie di tutti i siti supportati.",
+                "",
+                "Esempi:",
+                "/cookie instagram",
+                "/cookie_refresh instagram",
+                "/cookie_refresh all",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
 async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     chat = update.effective_chat
@@ -1318,6 +1382,7 @@ def main() -> None:
         alert_state_file=settings.usage_alert_state_file,
     )
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("usage", usage_command))
     private_cookie_filter = filters.ChatType.PRIVATE
     application.add_handler(CommandHandler("cookie", cookie_command, filters=private_cookie_filter))

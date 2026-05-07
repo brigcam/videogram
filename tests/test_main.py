@@ -4,12 +4,23 @@ import unittest
 from app.downloader import DownloadedAudio, DownloadedPhoto, DownloadedPost
 from app.main import (
     SiteLimiter,
+    build_help_text,
     cookie_command_usage,
     description_summary_message,
     normalize_netscape_cookie_text,
     parse_cookies_refresh_command_text,
     parse_cookie_command_text,
 )
+
+
+class DummyApplication:
+    def __init__(self, bot_data: dict) -> None:
+        self.bot_data = bot_data
+
+
+class DummyContext:
+    def __init__(self, bot_data: dict) -> None:
+        self.application = DummyApplication(bot_data)
 
 
 class MainTests(unittest.TestCase):
@@ -32,6 +43,33 @@ class MainTests(unittest.TestCase):
 
     def test_cookie_command_usage_mentions_reply_mode(self) -> None:
         self.assertIn("reply", cookie_command_usage())
+
+    def test_help_text_includes_authorized_admin_commands(self) -> None:
+        context = DummyContext(
+            {
+                "usage_allowed_user_ids": frozenset({123}),
+                "cookie_allowed_user_ids": frozenset({123}),
+            }
+        )
+
+        help_text = build_help_text(context, 123)
+
+        self.assertIn("/usage", help_text)
+        self.assertIn("/cookie_refresh all", help_text)
+
+    def test_help_text_hides_admin_commands_when_not_authorized(self) -> None:
+        context = DummyContext(
+            {
+                "usage_allowed_user_ids": frozenset({123}),
+                "cookie_allowed_user_ids": frozenset({123}),
+            }
+        )
+
+        help_text = build_help_text(context, 999)
+
+        self.assertIn("/start", help_text)
+        self.assertNotIn("/usage", help_text)
+        self.assertNotIn("/cookie_refresh", help_text)
 
     def test_parse_cookies_refresh_command(self) -> None:
         self.assertEqual(parse_cookies_refresh_command_text("/cookies_refresh instagram"), ("instagram",))

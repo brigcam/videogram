@@ -193,6 +193,10 @@ YTDLP_COOKIES_DIR=/cookies
 
 La cartella `./cookies` è ignorata da Git e copiata in una posizione temporanea a ogni download, così `yt-dlp` non modifica il file originale. È montata in scrittura solo per permettere agli utenti autorizzati di aggiornare i cookie via Telegram.
 
+## Comandi Telegram
+
+In privato puoi usare `/help` per vedere i comandi disponibili per il tuo utente. L'elenco mostra i comandi admin solo agli user ID autorizzati.
+
 Per aggiornare un file cookie da Telegram, usa il bot in privato:
 
 ```text
