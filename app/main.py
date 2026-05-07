@@ -14,6 +14,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
+from app.browser_cookies import BrowserCookieRefresher, SUPPORTED_BROWSER_COOKIE_SITES
 from app.captions import build_video_caption
 from app.config import load_settings
 from app.downloader import DownloadedPost, DownloadError, TranscriptError, VideoDownloader
@@ -238,6 +239,79 @@ async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await message.reply_text(f"Cookie aggiornati per {site}. Le prossime richieste useranno il nuovo file.")
 
 
+async def cookies_refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    user_id = update.effective_user.id if update.effective_user else None
+    if not message or not chat:
+        return
+    if chat.type != "private" or not cookie_user_is_allowed(context, user_id):
+        logger.warning("cookies_refresh_command_rejected chat_id=%s chat_type=%s user_id=%s", chat.id, chat.type, user_id)
+        if chat.type == "private":
+            await message.reply_text("Non sei autorizzato ad aggiornare i cookie.")
+        return
+
+    try:
+        site = parse_cookies_refresh_command_text(message.text or "")
+    except ValueError as exc:
+        await message.reply_text(str(exc))
+        return
+
+    refresher: BrowserCookieRefresher | None = context.application.bot_data.get("browser_cookie_refresher")
+    if not refresher:
+        await message.reply_text("Refresh browser non configurato.")
+        return
+
+    request_id = uuid.uuid4().hex[:12]
+    status = await message.reply_text(f"Provo a rinfrescare i cookie {site} con il browser headless...")
+    result = await refresher.refresh(site, request_id)
+    if not result.ok:
+        detail = result.message
+        if result.current_url:
+            detail += f"\nURL corrente: {result.current_url}"
+        await safe_status_edit(status, f"{detail}\n\nID richiesta: {request_id}", request_id, "cookies_refresh_failed_status")
+        return
+
+    try:
+        normalized_cookie_text = normalize_netscape_cookie_text(result.cookie_text)
+        cookie_path = write_cookie_file(context, site, normalized_cookie_text)
+    except (ValueError, OSError) as exc:
+        logger.warning("request_id=%s browser_cookie_save_failed site=%s error=%s", request_id, site, exc)
+        await safe_status_edit(
+            status,
+            f"Ho letto i cookie dal browser, ma non sono riuscito a salvarli: {exc}\n\nID richiesta: {request_id}",
+            request_id,
+            "cookies_refresh_save_failed_status",
+        )
+        return
+
+    await safe_status_edit(
+        status,
+        f"Cookie {site} aggiornati dal browser headless ({result.cookie_count} cookie).\nFile: {cookie_path.name}",
+        request_id,
+        "cookies_refresh_complete_status",
+    )
+
+
+def parse_cookies_refresh_command_text(text: str) -> str:
+    parts = (text or "").strip().split(maxsplit=1)
+    if len(parts) < 2:
+        raise ValueError(
+            "Uso: /cookies_refresh sito\n"
+            "Per ora il refresh browser supporta: " + ", ".join(sorted(SUPPORTED_BROWSER_COOKIE_SITES))
+        )
+    command = parts[0].split("@", 1)[0].lower()
+    if command != "/cookies_refresh":
+        raise ValueError("Uso: /cookies_refresh sito")
+    site = parts[1].strip().lower()
+    if site not in SUPPORTED_BROWSER_COOKIE_SITES:
+        raise ValueError(
+            "Refresh browser non supportato per questo sito. Supportati: "
+            + ", ".join(sorted(SUPPORTED_BROWSER_COOKIE_SITES))
+        )
+    return site
+
+
 def parse_cookie_command_text(text: str) -> tuple[str, str]:
     parts = (text or "").strip().split(maxsplit=2)
     if not parts:
@@ -303,11 +377,16 @@ def normalize_netscape_cookie_text(cookie_text: str) -> str:
     has_cookie_row = False
     for line in lines:
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
             continue
-        fields = stripped.split("\t")
+        cookie_row = stripped
+        if stripped.startswith("#HttpOnly_"):
+            cookie_row = stripped.removeprefix("#HttpOnly_")
+        elif stripped.startswith("#"):
+            continue
+        fields = cookie_row.split("\t")
         if len(fields) < 7:
-            fields = re.split(r"\s+", stripped, maxsplit=6)
+            fields = re.split(r"\s+", cookie_row, maxsplit=6)
         if len(fields) < 7:
             raise ValueError("Cookie non validi: formato Netscape atteso con 7 colonne.")
         has_cookie_row = True
@@ -1103,6 +1182,11 @@ def main() -> None:
         settings.openai_summary_prompt,
         settings.openai_summary_max_transcript_chars,
     )
+    browser_cookie_refresher = BrowserCookieRefresher(
+        settings.browser_profile_dir,
+        settings.ytdlp_cookies_dir,
+        settings.browser_chromium_executable,
+    )
     application_builder = Application.builder().token(settings.telegram_bot_token)
     application_builder.post_init(post_init)
     application_builder.post_shutdown(post_shutdown)
@@ -1126,6 +1210,7 @@ def main() -> None:
     application.bot_data["processing_queue"] = asyncio.Semaphore(settings.max_concurrent_jobs)
     application.bot_data["site_limiter"] = SiteLimiter(settings.site_concurrent_jobs)
     application.bot_data["ytdlp_cookies_dir"] = settings.ytdlp_cookies_dir
+    application.bot_data["browser_cookie_refresher"] = browser_cookie_refresher
     application.bot_data["failure_recorder"] = FailureRecorder(Path(settings.failed_links_file))
     application.bot_data["usage_monitor"] = UsageMonitor(
         hetzner_api_token=settings.hetzner_api_token,
@@ -1140,6 +1225,7 @@ def main() -> None:
     application.add_handler(CommandHandler("usage", usage_command))
     private_cookie_filter = filters.ChatType.PRIVATE
     application.add_handler(CommandHandler("cookie", cookie_command, filters=private_cookie_filter))
+    application.add_handler(CommandHandler("cookies_refresh", cookies_refresh_command, filters=private_cookie_filter))
     application.add_handler(
         MessageHandler(
             filters.Document.ALL & filters.CaptionRegex(r"^/cookie(?:@\w+)?(?:\s|$)") & private_cookie_filter,
@@ -1159,7 +1245,7 @@ def main() -> None:
         "summary_model=%s summary_langs=%s max_concurrent_jobs=%s site_concurrent_jobs=%s "
         "concurrent_updates=%s failed_links_file=%s "
         "usage_allowed_user_count=%s cookie_allowed_user_count=%s usage_report_enabled=%s hetzner_usage_configured=%s "
-        "openai_costs_configured=%s openai_budget_configured=%s",
+        "openai_costs_configured=%s openai_budget_configured=%s browser_profile_dir=%s",
         settings.download_dir,
         settings.max_download_mb,
         settings.max_telegram_upload_mb,
@@ -1187,6 +1273,7 @@ def main() -> None:
         bool(settings.hetzner_api_token and settings.hetzner_server_id),
         bool(settings.openai_admin_key),
         bool(settings.openai_monthly_budget_usd > 0),
+        settings.browser_profile_dir,
     )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

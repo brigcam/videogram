@@ -6,4 +6,5 @@ downloads/
 logs/
 cookies/
 telegram-bot-api-data/
+browser-profiles/
 .pytest_cache/

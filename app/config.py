@@ -42,6 +42,8 @@ class Settings:
     failed_links_file: str = "/var/log/videogram/failed-links.jsonl"
     ytdlp_cookies_file: str = ""
     ytdlp_cookies_dir: str = ""
+    browser_profile_dir: str = "/browser-profiles"
+    browser_chromium_executable: str = "/usr/bin/chromium"
 
     @property
     def max_download_bytes(self) -> int:
@@ -101,6 +103,8 @@ def load_settings() -> Settings:
         failed_links_file=os.getenv("FAILED_LINKS_FILE", "/var/log/videogram/failed-links.jsonl"),
         ytdlp_cookies_file=os.getenv("YTDLP_COOKIES_FILE", "").strip(),
         ytdlp_cookies_dir=os.getenv("YTDLP_COOKIES_DIR", "").strip(),
+        browser_profile_dir=os.getenv("BROWSER_PROFILE_DIR", "/browser-profiles"),
+        browser_chromium_executable=os.getenv("BROWSER_CHROMIUM_EXECUTABLE", "/usr/bin/chromium"),
     )
 
 

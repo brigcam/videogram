@@ -38,6 +38,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.cookie_allowed_user_ids, frozenset())
         self.assertEqual(settings.hetzner_monthly_traffic_tb, 20.0)
         self.assertEqual(settings.openai_monthly_budget_usd, 0.0)
+        self.assertEqual(settings.browser_profile_dir, "/browser-profiles")
+        self.assertEqual(settings.browser_chromium_executable, "/usr/bin/chromium")
 
     def test_parse_optional_int(self) -> None:
         self.assertEqual(parse_optional_int(""), 0)

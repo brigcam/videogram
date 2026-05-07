@@ -7,6 +7,7 @@ from app.main import (
     cookie_command_usage,
     description_summary_message,
     normalize_netscape_cookie_text,
+    parse_cookies_refresh_command_text,
     parse_cookie_command_text,
 )
 
@@ -32,6 +33,13 @@ class MainTests(unittest.TestCase):
     def test_cookie_command_usage_mentions_reply_mode(self) -> None:
         self.assertIn("reply", cookie_command_usage())
 
+    def test_parse_cookies_refresh_command(self) -> None:
+        self.assertEqual(parse_cookies_refresh_command_text("/cookies_refresh instagram"), "instagram")
+
+    def test_parse_cookies_refresh_command_rejects_unknown_site(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non supportato"):
+            parse_cookies_refresh_command_text("/cookies_refresh youtube")
+
     def test_normalize_netscape_cookie_text_adds_header(self) -> None:
         cookie = normalize_netscape_cookie_text(
             ".instagram.com\tTRUE\t/\tTRUE\t1893456000\tsessionid\tabc123"
@@ -39,6 +47,13 @@ class MainTests(unittest.TestCase):
 
         self.assertTrue(cookie.startswith("# Netscape HTTP Cookie File\n"))
         self.assertTrue(cookie.endswith("\n"))
+
+    def test_normalize_netscape_cookie_text_accepts_httponly_rows(self) -> None:
+        cookie = normalize_netscape_cookie_text(
+            "#HttpOnly_.instagram.com\tTRUE\t/\tTRUE\t1893456000\tsessionid\tabc123"
+        )
+
+        self.assertIn("#HttpOnly_.instagram.com\tTRUE\t/\tTRUE\t1893456000\tsessionid\tabc123", cookie)
 
     def test_normalize_netscape_cookie_text_rejects_invalid_rows(self) -> None:
         with self.assertRaisesRegex(ValueError, "formato Netscape"):

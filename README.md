@@ -91,6 +91,8 @@ Nei gruppi Telegram potresti dover disattivare la privacy mode del bot da BotFat
 | `FAILED_LINKS_FILE` | `/var/log/videogram/failed-links.jsonl` | Storico JSONL dei link falliti, utile per debug e miglioramento matcher |
 | `YTDLP_COOKIES_FILE` | vuota | File cookies Netscape da passare a `yt-dlp` per piattaforme che richiedono login/verifica |
 | `YTDLP_COOKIES_DIR` | `/cookies` | Cartella con file cookies `.txt` selezionati per dominio da `yt-dlp`, ad esempio `youtube.txt`, `reddit.txt`, `instagram.txt`, `facebook.txt`, `threads.txt`, `x.txt` e `tiktok.txt` |
+| `BROWSER_PROFILE_DIR` | `/browser-profiles` | Cartella profili browser persistenti usati dal refresh headless dei cookie |
+| `BROWSER_CHROMIUM_EXECUTABLE` | `/usr/bin/chromium` | Path di Chromium nel container per Playwright |
 
 I media scaricati vengono tenuti nella cartella locale `./downloads` e riusati quando viene richiesto di nuovo lo stesso URL normalizzato. Quando lo spazio libero scende sotto `MIN_FREE_DISK_PERCENT`, Videogram elimina prima i file meno usati recentemente.
 Per i video, Videogram salva anche una miniatura `thumbnail.jpg` nella cache e la passa a Telegram durante l'upload, cosi i client hanno un'anteprima anche quando il file non parte automaticamente. Se la piattaforma espone gia una thumbnail, usa quella; altrimenti estrae un frame dal video.
@@ -197,6 +199,14 @@ Per aggiornare un file cookie da Telegram, usa il bot in privato:
 ```
 
 Oppure invia `/cookie instagram` in reply a un file `.txt` o a un messaggio che contiene i cookie in formato Netscape. Il comando funziona solo per `COOKIE_ALLOWED_USER_IDS`; se questa variabile è vuota, eredita `USAGE_ALLOWED_USER_IDS`.
+
+Per provare a rinfrescare i cookie Instagram da una sessione browser persistente, usa in privato:
+
+```text
+/cookies_refresh instagram
+```
+
+Il comando apre Chromium headless con il profilo salvato in `./browser-profiles/instagram`, importa gli eventuali cookie correnti da `./cookies/instagram.txt` e, se la sessione risulta valida, riscrive `instagram.txt` con i cookie aggiornati. Se Instagram chiede login, challenge o checkpoint, il bot non automatizza password/2FA e ti avvisa.
 
 Dopo aver modificato `.env`:
 

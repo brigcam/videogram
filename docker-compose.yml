@@ -54,7 +54,10 @@ services:
       FAILED_LINKS_FILE: ${FAILED_LINKS_FILE:-/var/log/videogram/failed-links.jsonl}
       YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
       YTDLP_COOKIES_DIR: ${YTDLP_COOKIES_DIR:-/cookies}
+      BROWSER_PROFILE_DIR: ${BROWSER_PROFILE_DIR:-/browser-profiles}
+      BROWSER_CHROMIUM_EXECUTABLE: ${BROWSER_CHROMIUM_EXECUTABLE:-/usr/bin/chromium}
     volumes:
       - ./downloads:/tmp/videogram-downloads
       - ./logs:/var/log/videogram
       - ./cookies:/cookies
+      - ./browser-profiles:/browser-profiles
